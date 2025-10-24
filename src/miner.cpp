@@ -125,9 +125,12 @@ std::unique_ptr<CBlockTemplate> BlockAssembler::CreateNewBlock(const CScript& sc
     assert(pindexPrev != nullptr);
     nHeight = pindexPrev->nHeight + 1;
 
-    const int32_t nChainId = chainparams.GetConsensus ().nAuxpowChainId;
-    const int32_t nVersion = 4;
+    // Hard fork: set version and chainID based on height
+    const Consensus::Params& consensus = chainparams.GetConsensus();
+    int32_t nVersion = (nHeight >= consensus.nAuxpowChainIdChangeHeight) ? 5 : 4;
+    int32_t nChainId = (nHeight >= consensus.nAuxpowChainIdChangeHeight) ? consensus.nAuxpowNewChainId : consensus.nAuxpowChainId;
     pblock->SetBaseVersion(nVersion, nChainId);
+
     // -regtest only: allow overriding block.nVersion with
     // -blockversion=N to test forking scenarios
     if (chainparams.MineBlocksOnDemand())

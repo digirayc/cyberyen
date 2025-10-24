@@ -3660,9 +3660,17 @@ static bool ContextualCheckBlockHeader(const CBlockHeader& block, BlockValidatio
 {
     assert(pindexPrev != nullptr);
     const int nHeight = pindexPrev->nHeight + 1;
-
-    // Disallow legacy blocks after merge-mining start.
     const Consensus::Params& consensusParams = params.GetConsensus();
+
+    // Hard fork: enforce version for AuxPow blocks
+    if (block.IsAuxpow() && nHeight >= consensusParams.nAuxpowChainIdChangeHeight) {
+        if (block.GetBaseVersion() < 5) {
+            return state.Invalid(BlockValidationResult::BLOCK_INVALID_HEADER, "bad-version",
+                                 strprintf("Block version %d < 5 at height %d (AuxPow chainID hard fork)", block.GetBaseVersion(), nHeight));
+        }
+    }
+
+    // Disallow legacy blocks after merge-mining start
     if (!consensusParams.AllowLegacyBlocks(nHeight) && block.IsLegacy())
         return state.Invalid(BlockValidationResult::BLOCK_INVALID_HEADER, "late-legacy-block", "legacy block after auxpow start");
 

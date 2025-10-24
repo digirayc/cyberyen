@@ -10,7 +10,7 @@
 #include <logging.h>
 #include <primitives/block.h>
 #include <uint256.h>
-
+#include <validation.h>
 #include <math.h>
 
 unsigned int Lwma3CalculateNextWorkRequired(const CBlockIndex* pindexLast, const Consensus::Params& params)
@@ -339,48 +339,63 @@ bool CheckProofOfWorkImpl(uint256 hash, unsigned int nBits, const Consensus::Par
 
 bool CheckProofOfWork(const CBlockHeader& block, const Consensus::Params& params)
 {
-    /* Except for legacy blocks with full version 1, ensure that the chain ID is correct.  Legacy blocks are not allowed since
-       the merge-mining start, which is checked in AcceptBlockHeader where the height is known.  */
-    if (!block.IsLegacy() && params.fStrictChainId && block.GetChainId() != params.nAuxpowChainId) {
-        LogPrint(BCLog::AUXPOW, "%s : block does not have our chain ID (got %d, expected %d, full nVersion %d)\n",
-                  __func__, block.GetChainId(), params.nAuxpowChainId, block.nVersion);
+    // Determine chainID based on height and version
+    const CBlockIndex* pindexPrev = ChainActive().Tip();
+    int nHeight = pindexPrev ? pindexPrev->nHeight + 1 : 0;
+    int nChainId = params.nAuxpowChainId; // Pre-fork: 0x0010
+    if (block.IsAuxpow() && nHeight >= params.nAuxpowChainIdChangeHeight) {
+        if (block.GetBaseVersion() < 5) {
+            LogPrint(BCLog::AUXPOW, "%s : block version %d < 5 at height %d (AuxPow chainID hard fork)\n",
+                     __func__, block.GetBaseVersion(), nHeight);
+            return false;
+        }
+        nChainId = params.nAuxpowNewChainId; // Post-fork: 0x1000
+    }
+
+    // Check chainID
+    if (!block.IsLegacy() && params.fStrictChainId && block.GetChainId() != nChainId) {
+        LogPrint(BCLog::AUXPOW, "%s : block does not have expected chain ID (got %d, expected %d, full nVersion %d)\n",
+                 __func__, block.GetChainId(), nChainId, block.nVersion);
         return false;
     }
 
-    /* If there is no auxpow, just check the block hash.  */
-    if (!block.auxpow)
-    {
+    // If no auxpow, check block hash
+    if (!block.auxpow) {
         if (block.IsAuxpow()) {
             LogPrint(BCLog::AUXPOW, "%s : no auxpow on block with auxpow version\n", __func__);
             return false;
         }
-        if (!CheckProofOfWork(block.GetPoWHash(), block.nBits, params)) {
+        if (!CheckProofOfWorkImpl(block.GetPoWHash(), block.nBits, params)) {
             LogPrint(BCLog::AUXPOW, "%s : non-AUX proof of work failed\n", __func__);
             return false;
         }
         return true;
     }
 
-    /* We have auxpow.  Check it.  */
+    // Auxpow block: check parent and auxpow
     if (!block.IsAuxpow()) {
         LogPrint(BCLog::AUXPOW, "%s : auxpow on block with non-auxpow version\n", __func__);
         return false;
     }
 
-    /* Temporary check:  Disallow parent blocks with auxpow version.  This is for compatibility with the old client.  */
+    // Temporary check for compatibility
     if (block.auxpow->getParentBlock().IsAuxpow()) {
         LogPrint(BCLog::AUXPOW, "%s : auxpow parent block has auxpow version\n", __func__);
         return false;
     }
-    if (!CheckProofOfWork(block.auxpow->getParentBlockPoWHash(), block.nBits, params)) {
+
+    // Check parent block POW
+    if (!CheckProofOfWorkImpl(block.auxpow->getParentBlockPoWHash(), block.nBits, params)) {
         LogPrint(BCLog::AUXPOW, "%s : AUX proof of work failed\n", __func__);
         return false;
     }
-    if (!block.auxpow->check(block.GetHash(), block.GetChainId(), params)) {
-        LogPrint(BCLog::AUXPOW, "%s : AUX POW is not valid\n", __func__);
+
+    // Check auxpow with correct chainID
+    if (!block.auxpow->check(block.GetHash(), nChainId, params)) {
+        LogPrint(BCLog::AUXPOW, "%s : AUX POW is not valid for chainID %d at height %d\n",
+                 __func__, nChainId, nHeight);
         return false;
     }
 
     return true;
 }
-

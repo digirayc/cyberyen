@@ -107,7 +107,9 @@ struct Params {
     std::vector<uint8_t> signet_challenge;
 
     /** Auxpow parameters */
-    int32_t nAuxpowChainId;
+    int32_t nAuxpowNewChainId; // New chainID (0x1000)
+    int32_t nAuxpowChainIdChangeHeight; // Height for hard fork
+    int32_t nAuxpowChainId; // Old conflicting chainID (0x0010)
     int nAuxpowStartHeight;
     bool fStrictChainId;
     int nLegacyBlocksBefore; // -1 for "always allow"

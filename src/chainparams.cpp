@@ -86,8 +86,10 @@ public:
 	consensus.fPowNoRetargeting = false;
 	consensus.fSimplifiedRewards = true;
 
-	//auxpow
-	consensus.nAuxpowChainId = 0x0001;
+	// Auxpow parameters
+	consensus.nAuxpowNewChainId = 0x1000;
+	consensus.nAuxpowChainIdChangeHeight = 1260000; // ~Nov 1, 2025
+	consensus.nAuxpowChainId = 0x0010; // Pre-fork chainID
 	consensus.nAuxpowStartHeight = std::numeric_limits<uint32_t>::max();
 	consensus.fStrictChainId = true;
 	consensus.nLegacyBlocksBefore = std::numeric_limits<uint32_t>::max();
@@ -167,6 +169,7 @@ public:
 	    {  700000, uint256S("0x0de1655eb77fc801ebd5f5488948fefcaaaa960f28b99a67c18796a89e4d4167")},
 	    {  900000, uint256S("0x8f5a8f7ad48c6b4bc7744d12d1e5cfffb0d2e1510f7f369d27c8e5496b6ecb5f")},
 	    // {  975000, uint256S("0x")}, // Future Block: AuxPoW implementation, commit 182963e
+	    {1260000, uint256S("0000000000000000000000000000000000000000000000000000000000000000")}, // Update post-mining
 	  }
 	};
 
@@ -209,11 +212,13 @@ public:
 	consensus.fPowNoRetargeting = false;
 	consensus.fSimplifiedRewards = true;
 
-        //auxpow
-        consensus.nAuxpowChainId = 0x0001;
-        consensus.nAuxpowStartHeight = std::numeric_limits<uint32_t>::max();
-        consensus.fStrictChainId = true;
-        consensus.nLegacyBlocksBefore = std::numeric_limits<uint32_t>::max();
+	// Auxpow parameters
+	consensus.nAuxpowNewChainId = 0x1000;
+	consensus.nAuxpowChainIdChangeHeight = 10;
+	consensus.nAuxpowChainId = 0x0010;
+	consensus.nAuxpowStartHeight = std::numeric_limits<uint32_t>::max();
+	consensus.fStrictChainId = true;
+	consensus.nLegacyBlocksBefore = std::numeric_limits<uint32_t>::max();
 
 	consensus.nRuleChangeActivationThreshold = 720; // 75% from 960
 	consensus.nMinerConfirmationWindow = 960; // nPowTargetTimespan / nPowTargetSpacing * 4
@@ -315,11 +320,13 @@ public:
 	consensus.fPowNoRetargeting = true;
 	consensus.fSimplifiedRewards = true;
 
-        //auxpow
-        consensus.nAuxpowChainId = 0x0001;
-        consensus.nAuxpowStartHeight = std::numeric_limits<uint32_t>::max();
-        consensus.fStrictChainId = true;
-        consensus.nLegacyBlocksBefore = std::numeric_limits<uint32_t>::max();
+	// Auxpow parameters
+	consensus.nAuxpowNewChainId = 0x1000;
+	consensus.nAuxpowChainIdChangeHeight = 10;
+	consensus.nAuxpowChainId = 0x0010;
+	consensus.nAuxpowStartHeight = std::numeric_limits<uint32_t>::max();
+	consensus.fStrictChainId = true;
+	consensus.nLegacyBlocksBefore = std::numeric_limits<uint32_t>::max();
 
 	consensus.nRuleChangeActivationThreshold = 108; // 75% for testchains
 	consensus.nMinerConfirmationWindow = 144;
