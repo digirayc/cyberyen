@@ -16,16 +16,14 @@ jobs:
           submodules: recursive
 
       - name: Install Guix
-        uses: docker://ghcr.io/guix-science/guix:latest
-        with:
-          args: |
-            guix-daemon --build-users=yes --max-jobs=4
+        uses: PromyLOPh/guix-install-action@v1
 
-      - name: Build Cyberyen with Guix
+      - name: Build Cyberyen with Guix (Linux)
         run: |
           guix shell --pure -m contrib/guix/manifest.scm -- bash -c '
-            cd $GITHUB_WORKSPACE
+            set -e
             echo "=== Starting Guix build for Cyberyen ==="
+            echo "Host: x86_64-unknown-linux-gnu"
             ./contrib/guix/guix-build.sh
           '
         env:
