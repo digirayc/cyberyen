@@ -1,0 +1,32 @@
+name: Guix CI
+
+on:
+  push:
+    branches: [ feature/guix-build-system ]
+  pull_request:
+    branches: [ feature/guix-build-system ]
+
+jobs:
+  guix-build:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Guix
+        uses: docker://ghcr.io/guix-science/guix:latest
+        with:
+          args: |
+            guix-daemon --build-users=yes --max-jobs=4
+
+      - name: Build Cyberyen with Guix
+        run: |
+          guix shell --pure -m contrib/guix/manifest.scm -- bash -c '
+            cd $GITHUB_WORKSPACE
+            echo "=== Starting Guix build for Cyberyen ==="
+            ./contrib/guix/guix-build.sh
+          '
+        env:
+          HOST: x86_64-unknown-linux-gnu
