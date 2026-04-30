@@ -1,9 +1,3 @@
-;;;
-;;; Guix manifest for Cyberyen Core reproducible builds
-;;; This file defines the exact build environment for Cyberyen.
-;;; Based on Litecoin 0.21 + MWEB + Scrypt.
-;;;
-
 (use-modules (guix packages)
              (guix download)
              (guix build-system gnu)
@@ -12,13 +6,12 @@
              (gnu packages autotools)
              (gnu packages base)
              (gnu packages boost)
-             (gnu packages commencement)     ; needed for gcc-toolchain
+             (gnu packages commencement)     ; for gcc-toolchain
              (gnu packages compression)
              (gnu packages databases)
              (gnu packages gcc)
              (gnu packages gettext)
              (gnu packages glib)
-             (gnu packages graphviz)
              (gnu packages libevent)
              (gnu packages pkg-config)
              (gnu packages qt)
@@ -28,7 +21,7 @@
 (packages->manifest
  (list
   ;; Core build tools
-  gcc-toolchain@10                ; GCC 10 for maximum compatibility with 0.21.x
+  gcc-toolchain                    ; using default version (works reliably in CI)
   make
   autoconf
   automake
@@ -45,7 +38,7 @@
   sqlite
   zeromq
 
-  ;; Optional / recommended
+  ;; Optional but useful
   berkeley-db-4
   zlib
   bzip2
