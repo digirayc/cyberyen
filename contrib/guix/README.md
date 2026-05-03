@@ -1,5 +1,23 @@
 # Bootstrappable Bitcoin Core Builds
 
+## Modern Guix (parallel, recommended for new builds)
+
+For new reproducibility work, use **`./contrib/guix/guix-build`** (no `.sh` suffix). It invokes **`guix time-machine shell`**, loads **`contrib/guix/libexec/prelude.bash`**, uses **`contrib/guix/manifest-modern.scm`** (same toolchain and package set as `manifest.scm` for side-by-side comparison with the legacy path), and writes outputs under **`guix-build-<version>/output/`** with per-host `distsrc` trees under **`guix-build-<version>/`**. Default **HOSTS** are the same as the legacy driver: Linux triples plus **`x86_64-w64-mingw32`** (Darwin is not enabled yet).
+
+**`DISTNAME` / `VERSION`** follow **`contrib/gitian-descriptors/assign_DISTNAME`**, matching the Gitian naming convention when those variables are not overridden.
+
+**Legacy (unchanged):** **`./contrib/guix/guix-build.sh`**, **`manifest.scm`**, and **`libexec/build.sh`** remain available and behave as before. **Gitian** (`contrib/gitian-descriptors/`, release process) is **not** modified by the modern path.
+
+The child Guix inside `time-machine` is invoked as **`guix <subcommand> ...`**; the default subcommand is **`shell`**. If you see an error that `shell` is unknown for the pinned revision, set **`GUIX_INNER=environment`** (same inner command the legacy `guix-build.sh` uses).
+
+```sh
+./contrib/guix/guix-build --help
+# example: single platform
+HOSTS=x86_64-linux-gnu ./contrib/guix/guix-build
+```
+
+---
+
 This directory contains the files necessary to perform bootstrappable Bitcoin
 Core builds.
 

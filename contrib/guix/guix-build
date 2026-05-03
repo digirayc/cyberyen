@@ -1,0 +1,230 @@
+#!/usr/bin/env bash
+# Modern Cyberyen Core Guix release build driver (parallel to contrib/guix/guix-build.sh).
+
+export LC_ALL=C
+set -e -o pipefail
+
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
+
+usage() {
+	cat << EOF
+Usage: ./contrib/guix/guix-build
+
+Environment variables (common):
+  HOSTS              Space-separated GNU triples (default: Linux + Windows, no Darwin)
+  JOBS               Parallel jobs (default: nproc)
+  SOURCE_DATE_EPOCH  Unix timestamp for reproducibility (default: HEAD commit time)
+  SOURCES_PATH       Depends source download cache
+  BASE_CACHE         Depends built packages cache
+  FORCE_DIRTY_WORKTREE=1   Allow a dirty git tree (development only)
+  FORCE_SOURCE_DATE_EPOCH=1   Use preset SOURCE_DATE_EPOCH despite safety check
+  GUIX_MANIFEST      Path to manifest (default: contrib/guix/manifest-modern.scm)
+  GUIX_GIT_URL / GUIX_GIT_COMMIT   Override Guix git pin (same defaults as legacy guix-build.sh)
+  GUIX_INNER         Child command after time-machine (default: shell). Use environment if the pin lacks shell.
+
+See contrib/guix/README.md for substitute and debugging flags.
+
+This script must be run from the repository root (same as legacy guix-build.sh).
+EOF
+}
+
+if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
+	usage
+	exit 0
+fi
+
+# shellcheck source=contrib/guix/libexec/prelude.bash
+source "${SCRIPT_DIR}/libexec/prelude.bash"
+
+###################
+## SANITY CHECKS ##
+###################
+
+check_tools cat mkdir make getent curl git guix
+
+if [ -n "${GUIX_BUILD_OPTIONS:-}" ]; then
+	cat << EOF
+Error: Environment variable GUIX_BUILD_OPTIONS is not empty:
+ '${GUIX_BUILD_OPTIONS}'
+
+This script is incompatible with GUIX_BUILD_OPTIONS; unset it and use
+ADDITIONAL_GUIX_COMMON_FLAGS or ADDITIONAL_GUIX_ENVIRONMENT_FLAGS instead.
+See contrib/guix/README.md.
+EOF
+	exit 1
+fi
+
+check_source_date_epoch
+
+if ! git diff-index --quiet HEAD -- && [ -z "${FORCE_DIRTY_WORKTREE:-}" ]; then
+	cat << EOF
+ERR: The current git worktree is dirty, which may lead to broken builds.
+
+ Aborting...
+
+Hint:
+ 1. Commit or stash your changes, or
+ 2. Set FORCE_DIRTY_WORKTREE=1 for local experiments only
+EOF
+	exit 1
+fi
+
+mkdir -p "${VERSION_BASE}"
+
+export HOSTS="${HOSTS:-x86_64-linux-gnu arm-linux-gnueabihf aarch64-linux-gnu riscv64-linux-gnu x86_64-w64-mingw32}"
+
+# Usage: distsrc_for_host HOST
+distsrc_for_host() {
+	echo "${DISTSRC_BASE}/distsrc-${VERSION}-${1}"
+}
+
+# Usage: outdir_for_host HOST
+outdir_for_host() {
+	echo "${OUTDIR_BASE}/${1}${2:+-${2}}"
+}
+
+# Usage: host_to_commonname HOST
+host_to_commonname() {
+	case "$1" in
+	*mingw*) echo win ;;
+	*linux*) echo linux ;;
+	*)
+		echo "ERR: Unsupported HOST for depends download mapping: $1" >&2
+		exit 1
+		;;
+	esac
+}
+
+hosts_distsrc_exists=""
+for host in $HOSTS; do
+	if [ -e "$(distsrc_for_host "$host")" ]; then
+		hosts_distsrc_exists+=" ${host}"
+	fi
+done
+
+if [ -n "$hosts_distsrc_exists" ]; then
+	cat << EOF
+ERR: Build directories for this version already exist for:
+${hosts_distsrc_exists}
+
+Remove or move them before starting another build.
+
+Hint: distsrc paths look like: ${DISTSRC_BASE}/distsrc-${VERSION}-<host-triple>
+EOF
+	exit 1
+fi
+
+mkdir -p "${DISTSRC_BASE}"
+
+avail_KiB="$(df -Pk "${VERSION_BASE}" | sed 1d | tr -s ' ' | cut -d' ' -f4)"
+total_required_KiB=0
+for host in $HOSTS; do
+	case "$host" in
+	*mingw*) required_KiB=7600000 ;;
+	*) required_KiB=6400000 ;;
+	esac
+	total_required_KiB=$((total_required_KiB + required_KiB))
+done
+
+if ((total_required_KiB > avail_KiB)); then
+	total_required_GiB=$((total_required_KiB / 1048576))
+	avail_GiB=$((avail_KiB / 1048576))
+	echo "ERR: Selected HOSTS need roughly ${total_required_GiB} GiB under ${VERSION_BASE}, but only ${avail_GiB} GiB appears free."
+	exit 1
+fi
+
+cat << EOF
+Checking connection to guix-daemon (hangs here if the daemon is not running)...
+EOF
+if ! guix gc --list-failures > /dev/null 2>&1; then
+	echo "ERR: Cannot talk to guix-daemon. Start it and retry."
+	exit 1
+fi
+
+if ! getent services http https ftp > /dev/null 2>&1; then
+	cat << EOF
+Warning: getent could not resolve services (http, https, ftp). Substitute
+downloads may fail in minimal environments; install netbase (Debian) or
+iana-etc (Arch) if needed.
+EOF
+fi
+
+mkdir -p "${OUTDIR_BASE}"
+
+JOBS="${JOBS:-$(nproc)}"
+
+GUIX_MANIFEST="${GUIX_MANIFEST:-${PWD}/contrib/guix/manifest-modern.scm}"
+
+# Download depends sources per host (container has no network).
+for host in $HOSTS; do
+	make -C "${PWD}/depends" -j"${JOBS}" "download-$(host_to_commonname "$host")" ${V:+V=1} ${SOURCES_PATH:+SOURCES_PATH="$SOURCES_PATH"}
+done
+
+SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH:-$(git -c log.showSignature=false log --format=%at -1)}"
+
+# Default follows current Guix practice (shell). Override with GUIX_INNER=environment
+# if the pinned Guix revision does not provide the shell subcommand.
+GUIX_INNER="${GUIX_INNER:-shell}"
+
+################
+# BUILD        #
+################
+
+int_trap() {
+	cat << EOF
+** INT received while building ${1}. Clean distsrc under ${DISTSRC_BASE} if needed before rebuilding.
+EOF
+}
+
+# shellcheck disable=SC2153
+for host in $HOSTS; do
+	trap 'int_trap ${host}' INT
+
+	(
+		export HOST="$host"
+
+		cat << EOF
+INFO: Building Cyberyen Core ${VERSION} for ${HOST}:
+  reference timestamp: ${SOURCE_DATE_EPOCH}
+  jobs: ${JOBS}
+  worktree -> /bitcoin
+  DISTSRC -> $(DISTSRC_BASE=/distsrc-base && distsrc_for_host "$HOST")
+  OUTDIR  -> $(OUTDIR_BASE=/outdir-base && outdir_for_host "$HOST")
+  manifest: ${GUIX_MANIFEST}
+EOF
+
+		mkdir -p "${PROFILES_BASE}/${host}"
+
+		# shellcheck disable=SC2086
+		time_machine "${GUIX_INNER}" --manifest="${GUIX_MANIFEST}" \
+			--container \
+			--writable-root \
+			--pure \
+			--no-cwd \
+			--share="$PWD"=/bitcoin \
+			--share="$DISTSRC_BASE"=/distsrc-base \
+			--share="$OUTDIR_BASE"=/outdir-base \
+			--expose="$(git rev-parse --git-common-dir)" \
+			${SOURCES_PATH:+--share="$SOURCES_PATH"} \
+			${BASE_CACHE:+--share="$BASE_CACHE"} \
+			--cores="$JOBS" \
+			--keep-failed \
+			--fallback \
+			--link-profile \
+			--root="${PROFILES_BASE}/${host}" \
+			${SUBSTITUTE_URLS:+--substitute-urls="$SUBSTITUTE_URLS"} \
+			${ADDITIONAL_GUIX_COMMON_FLAGS:-} ${ADDITIONAL_GUIX_ENVIRONMENT_FLAGS:-} \
+			-- env \
+			HOST="$host" \
+			DISTNAME="$DISTNAME" \
+			MAX_JOBS="$JOBS" \
+			JOBS="$JOBS" \
+			SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH:?unable to determine value}" \
+			${V:+V=1} \
+			${SOURCES_PATH:+SOURCES_PATH="$SOURCES_PATH"} \
+			${BASE_CACHE:+BASE_CACHE="$BASE_CACHE"} \
+			DISTSRC="$(DISTSRC_BASE=/distsrc-base && distsrc_for_host "$HOST")" \
+			OUTDIR="$(OUTDIR_BASE=/outdir-base && outdir_for_host "$HOST")" \
+			bash -c 'cd /bitcoin && bash contrib/guix/libexec/build.sh'
+	)
+done

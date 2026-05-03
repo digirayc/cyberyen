@@ -1,0 +1,80 @@
+# Modern parallel Guix test — does not affect release yet.
+#
+# This workflow exercises ./contrib/guix/guix-build (manifest-modern.scm, prelude.bash)
+# on branch guix-migration-stage1 only. It does not modify Gitian descriptors, legacy
+# guix-build.sh, or the v0.21.6 release process. Artifacts are for reproducibility
+# experiments and CI validation only.
+
+name: Guix modern (parallel smoke)
+
+on:
+  push:
+    branches:
+      - guix-migration-stage1
+  pull_request:
+    branches:
+      - guix-migration-stage1
+
+concurrency:
+  group: guix-modern-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  guix-build-linux-x86_64:
+    name: Modern Guix build (x86_64-linux-gnu)
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+
+    env:
+      # Single-host matrix equivalent: fastest useful smoke for CI.
+      HOSTS: x86_64-linux-gnu
+      # Match legacy inner CLI if the pinned Guix revision lacks `guix shell`.
+      GUIX_INNER: environment
+      # Keep logs readable on shared runners.
+      JOBS: 4
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Best-practice Guix install for Ubuntu runners (daemon, store, substitutes).
+      - name: Install GNU Guix
+        uses: PromyLOPh/guix-install-action@v1
+
+      - name: Show Guix version
+        run: guix --version
+
+      - name: Run modern Guix driver (full release-style build)
+        # Modern parallel Guix test — does not affect release yet.
+        run: |
+          set -euo pipefail
+          cd "${GITHUB_WORKSPACE}"
+          ./contrib/guix/guix-build
+
+      - name: Compute SHA256 of versioned output tree
+        id: hashes
+        run: |
+          set -euo pipefail
+          cd "${GITHUB_WORKSPACE}"
+          # shellcheck disable=SC1091
+          source contrib/gitian-descriptors/assign_DISTNAME
+          OUT_ROOT="guix-build-${VERSION}/output"
+          if [ ! -d "${OUT_ROOT}" ]; then
+            echo "Expected output directory missing: ${OUT_ROOT}"
+            ls -la "guix-build-${VERSION}" || true
+            exit 1
+          fi
+          find "${OUT_ROOT}" -type f -print0 | sort -z | xargs -0 sha256sum | tee SHA256SUMS-guix-modern.txt
+          echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
+          echo "out_root=${OUT_ROOT}" >> "${GITHUB_OUTPUT}"
+
+      - name: Upload build artifacts (output tree)
+        uses: actions/upload-artifact@v4
+        with:
+          name: guix-modern-output-${{ steps.hashes.outputs.version }}
+          path: |
+            guix-build-${{ steps.hashes.outputs.version }}/output/
+            SHA256SUMS-guix-modern.txt
+          if-no-files-found: error
