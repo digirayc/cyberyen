@@ -94,12 +94,27 @@ GUIX_GIT_URL="${GUIX_GIT_URL:-https://github.com/dongcarl/guix.git}"
 GUIX_GIT_COMMIT="${GUIX_GIT_COMMIT:-b066c25026f21fb57677aa34692a5034338e7ee3}"
 
 ################
+# Substitute servers (modern driver only; improves CI reliability vs flaky mirrors)
+################
+#
+# GUIX_SUBSTITUTE_URLS overrides SUBSTITUTE_URLS when set (e.g. in GitHub Actions).
+# Otherwise, if SUBSTITUTE_URLS is unset, default to the official Guix build farms.
+# Legacy guix-build.sh does not source this file.
+
+if [ -n "${GUIX_SUBSTITUTE_URLS:-}" ]; then
+	SUBSTITUTE_URLS="$GUIX_SUBSTITUTE_URLS"
+elif [ -z "${SUBSTITUTE_URLS:-}" ]; then
+	SUBSTITUTE_URLS="https://ci.guix.gnu.org https://bordeaux.guix.gnu.org"
+fi
+export SUBSTITUTE_URLS
+
+################
 # Execute "$@" in a pinned revision of Guix for reproducibility across time.
 ################
 
 time_machine() {
 	# Same minimal invocation as contrib/guix/guix-build.sh (child Guix revision).
-	# Optional flags for substitute URLs or experiments:
+	# Passes SUBSTITUTE_URLS to time-machine and (via guix-build) to shell/environment.
 	# shellcheck disable=SC2086
 	guix time-machine \
 		--url="$GUIX_GIT_URL" \

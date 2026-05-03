@@ -23,7 +23,7 @@ jobs:
   guix-build-linux-x86_64:
     name: Modern Guix build (x86_64-linux-gnu)
     runs-on: ubuntu-latest
-    timeout-minutes: 360
+    timeout-minutes: 480
 
     env:
       # Single-host matrix equivalent: fastest useful smoke for CI.
@@ -32,6 +32,8 @@ jobs:
       GUIX_INNER: environment
       # Keep logs readable on shared runners.
       JOBS: 4
+      # Reliable public substitutes for time-machine / shell (avoids depending on SWH for substitutes).
+      GUIX_SUBSTITUTE_URLS: "https://ci.guix.gnu.org https://bordeaux.guix.gnu.org"
 
     steps:
       - name: Checkout repository
@@ -46,12 +48,39 @@ jobs:
       - name: Show Guix version
         run: guix --version
 
+      # Authorize official substitute signing keys (ci + Bordeaux) for the daemon.
+      - name: Guix substitute setup
+        run: |
+          set -euo pipefail
+          GUIX_ROOT="/var/guix/profiles/per-user/root/current-guix"
+          GUIX_BIN="${GUIX_ROOT}/bin/guix"
+          for key in \
+            "${GUIX_ROOT}/share/guix/ci.guix.gnu.org.pub" \
+            "${GUIX_ROOT}/share/guix/bordeaux.guix.gnu.org.pub"; do
+            if [ -f "${key}" ]; then
+              sudo "${GUIX_BIN}" archive --authorize < "${key}"
+            fi
+          done
+
       - name: Run modern Guix driver (full release-style build)
         # Modern parallel Guix test — does not affect release yet.
         run: |
           set -euo pipefail
           cd "${GITHUB_WORKSPACE}"
-          ./contrib/guix/guix-build
+          max_attempts=3
+          attempt=1
+          while [ "${attempt}" -le "${max_attempts}" ]; do
+            if ./contrib/guix/guix-build; then
+              exit 0
+            fi
+            if [ "${attempt}" -eq "${max_attempts}" ]; then
+              echo "guix-build failed after ${max_attempts} attempts"
+              exit 1
+            fi
+            echo "Transient failure (attempt ${attempt}/${max_attempts}); retrying in 60s..."
+            sleep 60
+            attempt=$((attempt + 1))
+          done
 
       - name: Compute SHA256 of versioned output tree
         id: hashes
