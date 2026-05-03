@@ -1,0 +1,75 @@
+#!/usr/bin/env bash
+export LC_ALL=C
+set -e -o pipefail
+
+# Source the common prelude for Cyberyen Core Guix builds.
+#
+# shellcheck source=libexec/prelude.bash
+source "$(dirname "${BASH_SOURCE[0]}")/libexec/prelude.bash"
+
+FORCE=0
+if [[ $* == "--force" ]]; then
+	FORCE=1
+elif [ $# != 0 ]; then
+	echo "Script only takes optional --force arg."
+	exit 1
+fi
+
+###################
+## Sanity Checks ##
+###################
+
+check_tools cat mkdir make git guix
+
+#############
+## Clean ##
+#############
+
+under_dir() {
+	local path_residue
+	path_residue="${2##"${1}"}"
+	if [ -z "$path_residue" ] || [ "$path_residue" = "$2" ]; then
+		return 1
+	else
+		echo "$path_residue"
+	fi
+}
+
+dir_under_git_root() {
+	local rv
+	rv="$(under_dir "$(git_root)" "$1")"
+	[ -n "$rv" ] && echo "$rv"
+}
+
+shopt -s nullglob
+found_precious_dirs_files=( "${version_base_prefix}"*/"${var_base_basename}/precious_dirs" )
+shopt -u nullglob
+
+exclude_flags=()
+
+for precious_dirs_file in "${found_precious_dirs_files[@]}"; do
+	echo "Found precious_dirs file: '${precious_dirs_file}'"
+
+	if dirs_file_exclude_fragment=$(dir_under_git_root "$(dirname "$precious_dirs_file")"); then
+		exclude_flags+=( --exclude="${dirs_file_exclude_fragment}/precious_dirs" )
+	fi
+
+	while IFS='=' read -r name dir; do
+		if under=$(dir_under_git_root "$dir"); then
+			echo "Avoiding ${name}: ${under}"
+			exclude_flags+=( --exclude="$under" )
+		fi
+	done < "$precious_dirs_file"
+done
+
+if [[ $FORCE == 0 ]]; then
+	git clean -nxdff "${exclude_flags[@]}"
+
+	read -p "Proceed? (y/n) " -r
+	if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+		echo "Aborted."
+		exit 1
+	fi
+fi
+
+git clean -xdff "${exclude_flags[@]}"

@@ -1,10 +1,12 @@
-;; Cyberyen Core — modern Guix manifest (parallel to contrib/guix/manifest.scm)
+;; Cyberyen Core — modern Guix manifest (parallel path only).
 ;;
-;; Toolchain and package set match the legacy manifest for reproducibility
-;; experiments against ./contrib/guix/guix-build.sh when using the same Guix
-;; git pin (see contrib/guix/libexec/prelude.bash: GUIX_GIT_URL / GUIX_GIT_COMMIT).
+;; Package graph matches contrib/guix/manifest.scm (dongcarl-era toolchain: GCC 9,
+;; glibc 2.27) so that the shared autotools contrib/guix/libexec/build.sh keeps
+;; working unchanged. The driver pins upstream Guix via contrib/guix/libexec/prelude.bash
+;; (Codeberg guix.git @ c5eee3336cc1d10a3cc1c97fde2809c3451624d3).
 ;;
-;; Channel pin is applied by the driver via `guix time-machine`, not by this file.
+;; Bitcoin Core's CMake-based Guix manifest targets a different libexec/build.sh;
+;; Cyberyen intentionally retains this Scheme baseline until the tree migrates.
 
 (use-modules (gnu)
              (gnu packages)
@@ -71,32 +73,22 @@ http://www.linuxfromscratch.org/hlfs/view/development/chapter05/gcc-pass1.html"
                               base-gcc)
   "Create a cross-compilation toolchain package for TARGET"
   (let* ((xbinutils (cross-binutils target))
-         ;; 1. Build a cross-compiling gcc without targeting any libc, derived
-         ;; from BASE-GCC-FOR-LIBC
          (xgcc-sans-libc (cross-gcc target
                                     #:xgcc base-gcc-for-libc
                                     #:xbinutils xbinutils))
-         ;; 2. Build cross-compiled kernel headers with XGCC-SANS-LIBC, derived
-         ;; from BASE-KERNEL-HEADERS
          (xkernel (cross-kernel-headers target
                                         base-kernel-headers
                                         xgcc-sans-libc
                                         xbinutils))
-         ;; 3. Build a cross-compiled libc with XGCC-SANS-LIBC and XKERNEL,
-         ;; derived from BASE-LIBC
          (xlibc (cross-libc target
                             base-libc
                             xgcc-sans-libc
                             xbinutils
                             xkernel))
-         ;; 4. Build a cross-compiling gcc targeting XLIBC, derived from
-         ;; BASE-GCC
          (xgcc (cross-gcc target
                           #:xgcc base-gcc
                           #:xbinutils xbinutils
                           #:libc xlibc)))
-    ;; Define a meta-package that propagates the resulting XBINUTILS, XLIBC, and
-    ;; XGCC
     (package
       (name (string-append target "-toolchain"))
       (version (package-version xgcc))
@@ -140,8 +132,6 @@ desirable for building Cyberyen Core release binaries."
                                     #:xgcc (make-ssp-fixed-gcc gcc-9)
                                     #:xbinutils xbinutils
                                     #:libc pthreads-xlibc))))
-    ;; Define a meta-package that propagates the resulting XBINUTILS, XLIBC, and
-    ;; XGCC
     (package
       (name (string-append target "-posix-toolchain"))
       (version (package-version pthreads-xgcc))

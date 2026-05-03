@@ -1,4 +1,4 @@
-# Modern parallel Guix test — does not affect release yet.
+# Modern parallel Guix test — does not affect release process or Gitian.
 #
 # This workflow exercises ./contrib/guix/guix-build (manifest-modern.scm, prelude.bash)
 # on branch guix-migration-stage1 only. It does not modify Gitian descriptors, legacy
@@ -28,8 +28,6 @@ jobs:
     env:
       # Single-host matrix equivalent: fastest useful smoke for CI.
       HOSTS: x86_64-linux-gnu
-      # Match legacy inner CLI if the pinned Guix revision lacks `guix shell`.
-      GUIX_INNER: environment
       # Keep logs readable on shared runners.
       JOBS: 4
       # Reliable public substitutes for time-machine / shell (avoids depending on SWH for substitutes).
@@ -63,7 +61,7 @@ jobs:
           done
 
       - name: Run modern Guix driver (full release-style build)
-        # Modern parallel Guix test — does not affect release yet.
+        # Modern parallel Guix test — does not affect release process or Gitian.
         run: |
           set -euo pipefail
           cd "${GITHUB_WORKSPACE}"

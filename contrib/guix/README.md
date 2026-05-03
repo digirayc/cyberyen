@@ -2,19 +2,30 @@
 
 ## Modern Guix (parallel, recommended for new builds)
 
-For new reproducibility work, use **`./contrib/guix/guix-build`** (no `.sh` suffix). It invokes **`guix time-machine shell`**, loads **`contrib/guix/libexec/prelude.bash`**, uses **`contrib/guix/manifest-modern.scm`** (same toolchain and package set as `manifest.scm` for side-by-side comparison with the legacy path), and writes outputs under **`guix-build-<version>/output/`** with per-host `distsrc` trees under **`guix-build-<version>/`**. Default **HOSTS** are the same as the legacy driver: Linux triples plus **`x86_64-w64-mingw32`** (Darwin is not enabled yet).
+This section describes the **production-style** Guix driver aligned with **Bitcoin Core master (2026)** layout: **`./contrib/guix/guix-build`** (no `.sh` suffix), **`contrib/guix/libexec/prelude.bash`**, **`contrib/guix/manifest-modern.scm`**, and **`contrib/shell/`** helpers.
 
-**`DISTNAME` / `VERSION`** follow **`contrib/gitian-descriptors/assign_DISTNAME`**, matching the Gitian naming convention when those variables are not overridden.
+### What the modern path does
 
-**Legacy (unchanged):** **`./contrib/guix/guix-build.sh`**, **`manifest.scm`**, and **`libexec/build.sh`** remain available and behave as before. **Gitian** (`contrib/gitian-descriptors/`, release process) is **not** modified by the modern path.
+- Runs **`guix time-machine shell`** with Guix pinned to **`https://codeberg.org/guix/guix.git`** at commit **`c5eee3336cc1d10a3cc1c97fde2809c3451624d3`** (overridable with **`GUIX_GIT_URL`** / **`GUIX_GIT_COMMIT`**).
+- Uses **`SUBSTITUTE_URLS`** defaulting to **`https://ci.guix.gnu.org`** and **`https://bordeaux.guix.gnu.org`** (or **`GUIX_SUBSTITUTE_URLS`** in CI).
+- **`VERSION`** and **`DISTNAME`** come from **`contrib/gitian-descriptors/assign_DISTNAME`** (same naming as Gitian), unless **`FORCE_VERSION`** / **`DISTNAME`** override for testing.
+- Writes outputs under **`guix-build-${VERSION}/output/`** and build trees under **`guix-build-${VERSION}/distsrc-${VERSION}-<host>/`** (bind-mounted into the container).
+- Invokes the **shared** autotools script **`contrib/guix/libexec/build.sh`** with **`MAX_JOBS`** set from **`JOBS`**.
+- **`manifest-modern.scm`** keeps the **same package graph as `manifest.scm`** (GCC 9, glibc 2.27, python 3.7, cross-toolchains) so **`libexec/build.sh`** remains unchanged and deterministic layouts stay consistent.
 
-The child Guix inside `time-machine` is invoked as **`guix <subcommand> ...`**; the default subcommand is **`shell`**. If you see an error that `shell` is unknown for the pinned revision, set **`GUIX_INNER=environment`** (same inner command the legacy `guix-build.sh` uses).
+### Legacy path and Gitian (unchanged)
+
+**Do not remove:** **`./contrib/guix/guix-build.sh`**, **`contrib/guix/manifest.scm`**, and **`contrib/guix/libexec/build.sh`** — these continue to power the **legacy Guix** flow and match **v0.21.6** Gitian-oriented releases. **Gitian descriptors** are untouched by the modern driver.
+
+### Usage
 
 ```sh
 ./contrib/guix/guix-build --help
-# example: single platform
 HOSTS=x86_64-linux-gnu ./contrib/guix/guix-build
+./contrib/guix/guix-clean        # optional cleanup (see script)
 ```
+
+Key variables: **`HOSTS`**, **`JOBS`**, **`SOURCE_DATE_EPOCH`**, **`FORCE_DIRTY_WORKTREE`**, **`SOURCES_PATH`**, **`BASE_CACHE`**, **`SDK_PATH`**, **`SUBSTITUTE_URLS`**, **`GUIX_SUBSTITUTE_URLS`**, **`ADDITIONAL_GUIX_*`**.
 
 ---
 
