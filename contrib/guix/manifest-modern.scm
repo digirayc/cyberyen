@@ -177,9 +177,10 @@ chain for " target " development."))
         autoconf
         automake
         pkg-config
-        ;; Scripting
+        ;; Scripting (legacy manifest used python-3.7; upstream Guix no longer exports
+        ;; that symbol—python-minimal provides Python 3 for scripts without changing GCC/glibc)
         perl
-        python-3.7
+        python-minimal
         ;; Git
         git
         ;; Native gcc 9 toolchain targeting glibc 2.27
