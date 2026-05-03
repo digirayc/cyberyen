@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Modern Cyberyen Core Guix release driver (parallel to legacy contrib/guix/guix-build.sh).
+# Modern Cyberyen Core Guix driver: Linux x86_64 and Windows x86_64 only (parallel to guix-build.sh).
 
 export LC_ALL=C
 set -e -o pipefail
@@ -8,19 +8,16 @@ if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
 	cat << EOF
 Usage: ./contrib/guix/guix-build
 
-Build Cyberyen Core release binaries inside an isolated Guix container using
-manifest-modern.scm and the pinned Guix revision from contrib/guix/libexec/prelude.bash.
+Build Cyberyen Core release binaries (autotools) using manifest-modern.scm and
+the same Guix pin as legacy guix-build.sh. Default targets: x86_64-linux-gnu and
+x86_64-w64-mingw32.
 
-See contrib/guix/README.md (Modern Guix section) for environment variables.
+See contrib/guix/README.md (Modern Guix) for environment variables.
 Requires a clean git tree unless FORCE_DIRTY_WORKTREE is set.
 EOF
 	exit 0
 fi
 
-# Source the common prelude, which:
-# 1. Checks if we're at the top directory of the Cyberyen Core repository
-# 2. Defines common functions and variables
-#
 # shellcheck source=libexec/prelude.bash
 source "$(dirname "${BASH_SOURCE[0]}")/libexec/prelude.bash"
 
@@ -32,25 +29,16 @@ GUIX_MANIFEST="${GUIX_MANIFEST:-${PWD}/contrib/guix/manifest-modern.scm}"
 
 check_tools cat mkdir make getent curl git guix
 
-################
-# GUIX_BUILD_OPTIONS should be empty
-################
 if [ -n "${GUIX_BUILD_OPTIONS:-}" ]; then
 	cat << EOF
 Error: Environment variable GUIX_BUILD_OPTIONS is not empty:
  '${GUIX_BUILD_OPTIONS}'
 
-Unfortunately this script is incompatible with GUIX_BUILD_OPTIONS; unset
-GUIX_BUILD_OPTIONS and use ADDITIONAL_GUIX_COMMON_FLAGS or ADDITIONAL_GUIX_ENVIRONMENT_FLAGS instead.
-
-See contrib/guix/README.md for more details.
+Unset GUIX_BUILD_OPTIONS and use ADDITIONAL_GUIX_COMMON_FLAGS or
+ADDITIONAL_GUIX_ENVIRONMENT_FLAGS instead. See contrib/guix/README.md.
 EOF
 	exit 1
 fi
-
-################
-# The git worktree should not be dirty
-################
 
 if ! git diff-index --quiet HEAD -- && [ -z "${FORCE_DIRTY_WORKTREE:-}" ]; then
 	cat << EOF
@@ -69,20 +57,10 @@ fi
 
 mkdir -p "$VERSION_BASE"
 
-################
-# SOURCE_DATE_EPOCH should not unintentionally be set
-################
-
 check_source_date_epoch
 
-################
-# Build directories should not exist
-################
-
-# Default HOSTS match Bitcoin Core Guix defaults (override with HOSTS=...).
-export HOSTS="${HOSTS:-x86_64-linux-gnu arm-linux-gnueabihf aarch64-linux-gnu riscv64-linux-gnu powerpc64-linux-gnu
- x86_64-w64-mingw32
- x86_64-apple-darwin arm64-apple-darwin}"
+# Cyberyen release targets: Linux x86_64 and Windows x86_64 only.
+export HOSTS="${HOSTS:-x86_64-linux-gnu x86_64-w64-mingw32}"
 
 distsrc_for_host() {
 	echo "${DISTSRC_BASE}/distsrc-${VERSION}-${1}"
@@ -107,10 +85,8 @@ Hint: To blow everything away, you may want to use:
 
  $ ./contrib/guix/guix-clean
 
-Specifically, this will remove all files without an entry in the index,
-excluding the SDK directory, the depends download cache, the depends built
-packages cache, the garbage collector roots for Guix environments, and the
-output directory.
+This removes ignored/untracked build outputs, excluding depends download and
+package caches and the output directory (see guix-clean).
 EOF
 	for host in $hosts_distsrc_exists; do
 		echo " ${host} '$(distsrc_for_host "$host")'"
@@ -120,34 +96,10 @@ else
 	mkdir -p "$DISTSRC_BASE"
 fi
 
-################
-# When building for darwin, the macOS SDK should exist
-################
-
-for host in $HOSTS; do
-	case "$host" in
-	*darwin*)
-		OSX_SDK="$(make -C "${PWD}/depends" --no-print-directory HOST="$host" print-OSX_SDK | sed 's@^[^=]\+=@@g')"
-		if [ -e "$OSX_SDK" ]; then
-			echo "Found macOS SDK at '${OSX_SDK}', using..."
-			break
-		else
-			echo "macOS SDK does not exist at '${OSX_SDK}', please place the extracted, untarred SDK there to perform darwin builds, or define SDK_PATH environment variable. Exiting..."
-			exit 1
-		fi
-		;;
-	esac
-done
-
-################
-# VERSION_BASE should have enough space
-################
-
 avail_KiB="$(df -Pk "$VERSION_BASE" | sed 1d | tr -s ' ' | cut -d' ' -f4)"
 total_required_KiB=0
 for host in $HOSTS; do
 	case "$host" in
-	*darwin*) required_KiB=440000 ;;
 	*mingw*) required_KiB=7600000 ;;
 	*) required_KiB=6400000 ;;
 	esac
@@ -160,10 +112,6 @@ if ((total_required_KiB > avail_KiB)); then
 	echo "Performing a Cyberyen Core Guix build for the selected HOSTS requires ${total_required_GiB} GiB, however, only ${avail_GiB} GiB is available. Please free up some disk space before performing the build."
 	exit 1
 fi
-
-################
-# Check that we can connect to the guix-daemon
-################
 
 cat << EOF
 Checking that we can connect to the guix-daemon...
@@ -181,10 +129,6 @@ EOF
 	exit 1
 fi
 
-################
-# Services database must have basic entries
-################
-
 if ! getent services http https ftp > /dev/null 2>&1; then
 	cat << EOF
 ERR: Your system's C library cannot find service database entries for at least
@@ -192,9 +136,6 @@ ERR: Your system's C library cannot find service database entries for at least
 
 Hint: Most likely, /etc/services does not exist yet (common for docker images
  and minimal distros), or you don't have permissions to access it.
-
- If /etc/services does not exist yet, you may want to install the
- appropriate package for your distro which provides it.
 
  On Debian/Ubuntu: netbase
  On Arch Linux: iana-etc
@@ -213,16 +154,18 @@ JOBS="${JOBS:-$(nproc)}"
 
 host_to_commonname() {
 	case "$1" in
-	*darwin*) echo osx ;;
 	*mingw*) echo win ;;
 	*linux*) echo linux ;;
-	*) exit 1 ;;
+	*)
+		echo "ERR: Unsupported HOST (modern driver supports linux and mingw only): $1" >&2
+		exit 1
+		;;
 	esac
 }
 
 SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH:-$(git -c log.showSignature=false log --format=%at -1)}"
 
-depends_precious_dir_names='SOURCES_PATH BASE_CACHE SDK_PATH'
+depends_precious_dir_names='SOURCES_PATH BASE_CACHE'
 precious_dir_names="${depends_precious_dir_names} OUTDIR_BASE PROFILES_BASE"
 
 contains() {
@@ -292,11 +235,6 @@ int_trap() {
 Hint: To blow everything away, you may want to use:
 
  $ ./contrib/guix/guix-clean
-
-Specifically, this will remove all files without an entry in the index,
-excluding the SDK directory, the depends download cache, the depends built
-packages cache, the garbage collector roots for Guix environments, and the
-output directory.
 EOF
 }
 
@@ -321,7 +259,6 @@ INFO: Building ${VERSION:?not set} for platform triple ${HOST:?not set}:
  ...outputting in: '$(outdir_for_host "$HOST")'
  ...bind-mounted in container to: '$(OUTDIR_BASE=/outdir-base && outdir_for_host "$HOST")'
  ...manifest: '${GUIX_MANIFEST}'
- ADDITIONAL FLAGS (if set)
  ADDITIONAL_GUIX_COMMON_FLAGS: ${ADDITIONAL_GUIX_COMMON_FLAGS:-}
  ADDITIONAL_GUIX_ENVIRONMENT_FLAGS: ${ADDITIONAL_GUIX_ENVIRONMENT_FLAGS:-}
  ADDITIONAL_GUIX_TIMEMACHINE_FLAGS: ${ADDITIONAL_GUIX_TIMEMACHINE_FLAGS:-}
@@ -339,7 +276,6 @@ EOF
 			--expose="$(git rev-parse --git-common-dir)" \
 			${SOURCES_PATH:+--share="$SOURCES_PATH"} \
 			${BASE_CACHE:+--share="$BASE_CACHE"} \
-			${SDK_PATH:+--share="$SDK_PATH"} \
 			--cores="$JOBS" \
 			--keep-failed \
 			--fallback \
@@ -355,10 +291,8 @@ EOF
 				${V:+V=1} \
 				${SOURCES_PATH:+SOURCES_PATH="$SOURCES_PATH"} \
 				${BASE_CACHE:+BASE_CACHE="$BASE_CACHE"} \
-				${SDK_PATH:+SDK_PATH="$SDK_PATH"} \
 				DISTSRC="$(DISTSRC_BASE=/distsrc-base && distsrc_for_host "$HOST")" \
 				OUTDIR="$(OUTDIR_BASE=/outdir-base && outdir_for_host "$HOST")" \
-				DIST_ARCHIVE_BASE=/outdir-base/dist-archive \
 				bash -c "cd /bitcoin && bash contrib/guix/libexec/build.sh"
 	)
 done

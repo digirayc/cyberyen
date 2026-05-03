@@ -1,15 +1,9 @@
 #!/usr/bin/env bash
 # Shared prelude for the modern Cyberyen Core Guix driver (contrib/guix/guix-build).
-# Aligned with Bitcoin Core Guix layout (May 2026); not used by legacy guix-build.sh.
+# Not used by legacy contrib/guix/guix-build.sh.
 
 export LC_ALL=C
 set -e -o pipefail
-
-# shellcheck source=contrib/shell/realpath.bash
-source contrib/shell/realpath.bash
-
-# shellcheck source=contrib/shell/git-utils.bash
-source contrib/shell/git-utils.bash
 
 ################
 # Required non-builtin commands should be invocable
@@ -47,14 +41,15 @@ EOF
 check_tools cat env readlink dirname basename git
 
 ################
-# We should be at the top directory of the repository
+# Repository root (portable; no extra shell libraries)
 ################
 
+git_root() {
+	git rev-parse --show-toplevel 2> /dev/null
+}
+
 same_dir() {
-	local resolved1 resolved2
-	resolved1="$(bash_realpath "${1}")"
-	resolved2="$(bash_realpath "${2}")"
-	[ "$resolved1" = "$resolved2" ]
+	[ "$(cd "$1" && pwd -P)" = "$(cd "$2" && pwd -P)" ]
 }
 
 if ! same_dir "${PWD}" "$(git_root)"; then
@@ -82,7 +77,7 @@ elif [ -z "${VERSION:-}" ]; then
 fi
 
 ################
-# Official substitute servers (CI may set GUIX_SUBSTITUTE_URLS)
+# Substitute servers (optional; helps CI and local cached builds)
 ################
 
 if [ -n "${GUIX_SUBSTITUTE_URLS:-}" ]; then
@@ -93,21 +88,19 @@ fi
 export SUBSTITUTE_URLS
 
 ################
-# Pinned Guix (upstream Codeberg; May 2026). Legacy path still uses dongcarl fork.
+# Pinned Guix: same fork/commit as legacy contrib/guix/guix-build.sh
 ################
 
 ################
-# Execute "$@" in a pinned revision of Guix for reproducibility across time.
+# Child Guix revision (minimal time-machine invocation, matches legacy driver)
 ################
 time_machine() {
 	# shellcheck disable=SC2086
-	guix time-machine --url="${GUIX_GIT_URL:-https://codeberg.org/guix/guix.git}" \
-		--commit="${GUIX_GIT_COMMIT:-c5eee3336cc1d10a3cc1c97fde2809c3451624d3}" \
-		--cores="${JOBS:-$(nproc)}" \
-		--keep-failed \
-		--fallback \
+	guix time-machine \
+		--url="${GUIX_GIT_URL:-https://github.com/dongcarl/guix.git}" \
+		--commit="${GUIX_GIT_COMMIT:-b066c25026f21fb57677aa34692a5034338e7ee3}" \
 		${SUBSTITUTE_URLS:+--substitute-urls="$SUBSTITUTE_URLS"} \
-		${ADDITIONAL_GUIX_COMMON_FLAGS:-} ${ADDITIONAL_GUIX_TIMEMACHINE_FLAGS:-} \
+		${ADDITIONAL_GUIX_TIMEMACHINE_FLAGS:-} \
 		-- "$@"
 }
 

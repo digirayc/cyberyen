@@ -1,31 +1,34 @@
 # Bootstrappable Bitcoin Core Builds
 
-## Modern Guix (parallel, recommended for new builds)
+## Modern Guix (parallel path)
 
-This section describes the **production-style** Guix driver aligned with **Bitcoin Core master (2026)** layout: **`./contrib/guix/guix-build`** (no `.sh` suffix), **`contrib/guix/libexec/prelude.bash`**, **`contrib/guix/manifest-modern.scm`**, and **`contrib/shell/`** helpers.
+Driver files: **`./contrib/guix/guix-build`**, **`contrib/guix/libexec/prelude.bash`**, **`contrib/guix/manifest-modern.scm`**. Optional cleanup: **`./contrib/guix/guix-clean`**.
 
 ### What the modern path does
 
-- Runs **`guix time-machine shell`** with Guix pinned to **`https://codeberg.org/guix/guix.git`** at commit **`c5eee3336cc1d10a3cc1c97fde2809c3451624d3`** (overridable with **`GUIX_GIT_URL`** / **`GUIX_GIT_COMMIT`**).
-- Uses **`SUBSTITUTE_URLS`** defaulting to **`https://ci.guix.gnu.org`** and **`https://bordeaux.guix.gnu.org`** (or **`GUIX_SUBSTITUTE_URLS`** in CI).
-- **`VERSION`** and **`DISTNAME`** come from **`contrib/gitian-descriptors/assign_DISTNAME`** (same naming as Gitian), unless **`FORCE_VERSION`** / **`DISTNAME`** override for testing.
-- Writes outputs under **`guix-build-${VERSION}/output/`** and build trees under **`guix-build-${VERSION}/distsrc-${VERSION}-<host>/`** (bind-mounted into the container).
-- Invokes the **shared** autotools script **`contrib/guix/libexec/build.sh`** with **`MAX_JOBS`** set from **`JOBS`**.
-- **`manifest-modern.scm`** keeps the **same package graph as `manifest.scm`** (GCC 9, glibc 2.27, python 3.7, cross-toolchains) so **`libexec/build.sh`** remains unchanged and deterministic layouts stay consistent.
+- **`guix time-machine`** uses the **same Guix fork and commit as legacy `guix-build.sh`**: **`https://github.com/dongcarl/guix.git`** @ **`b066c25026f21fb57677aa34692a5034338e7ee3`** (override with **`GUIX_GIT_URL`** / **`GUIX_GIT_COMMIT`**).
+- Default **`HOSTS`**: **`x86_64-linux-gnu`** and **`x86_64-w64-mingw32`** only (no macOS SDK, no extra architectures).
+- **`SUBSTITUTE_URLS`** defaults to **`https://ci.guix.gnu.org`** and **`https://bordeaux.guix.gnu.org`** (or set **`GUIX_SUBSTITUTE_URLS`**).
+- **`VERSION`** / **`DISTNAME`** from **`contrib/gitian-descriptors/assign_DISTNAME`** unless **`FORCE_VERSION`** / **`DISTNAME`** override.
+- Outputs under **`guix-build-${VERSION}/output/`**; distsrc trees under **`guix-build-${VERSION}/distsrc-${VERSION}-<host>/`**.
+- Runs the **shared autotools** script **`contrib/guix/libexec/build.sh`** with **`MAX_JOBS`** from **`JOBS`**.
+- **`manifest-modern.scm`** matches **`manifest.scm`** package/toolchain choices (GCC 9, glibc 2.27, **python-3.7**); HOST branches cover Linux and Windows x86_64 only.
 
 ### Legacy path and Gitian (unchanged)
 
-**Do not remove:** **`./contrib/guix/guix-build.sh`**, **`contrib/guix/manifest.scm`**, and **`contrib/guix/libexec/build.sh`** — these continue to power the **legacy Guix** flow and match **v0.21.6** Gitian-oriented releases. **Gitian descriptors** are untouched by the modern driver.
+**Do not remove:** **`./contrib/guix/guix-build.sh`**, **`contrib/guix/manifest.scm`**, and **`contrib/guix/libexec/build.sh`**. **Gitian descriptors** are unchanged.
 
 ### Usage
 
 ```sh
 ./contrib/guix/guix-build --help
-HOSTS=x86_64-linux-gnu ./contrib/guix/guix-build
-./contrib/guix/guix-clean        # optional cleanup (see script)
+./contrib/guix/guix-build
+HOSTS="x86_64-linux-gnu x86_64-w64-mingw32" ./contrib/guix/guix-build
+./contrib/guix/test-modern.sh
+./contrib/guix/guix-clean
 ```
 
-Key variables: **`HOSTS`**, **`JOBS`**, **`SOURCE_DATE_EPOCH`**, **`FORCE_DIRTY_WORKTREE`**, **`SOURCES_PATH`**, **`BASE_CACHE`**, **`SDK_PATH`**, **`SUBSTITUTE_URLS`**, **`GUIX_SUBSTITUTE_URLS`**, **`ADDITIONAL_GUIX_*`**.
+Key variables: **`HOSTS`**, **`JOBS`**, **`SOURCE_DATE_EPOCH`**, **`FORCE_DIRTY_WORKTREE`**, **`SOURCES_PATH`**, **`BASE_CACHE`**, **`SUBSTITUTE_URLS`**, **`GUIX_SUBSTITUTE_URLS`**, **`ADDITIONAL_GUIX_*`**. (Legacy **`SDK_PATH`** applies to **`guix-build.sh`** / depends for Apple builds; the modern driver does not target Darwin.)
 
 ---
 

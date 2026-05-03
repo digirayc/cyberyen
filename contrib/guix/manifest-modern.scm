@@ -1,12 +1,12 @@
 ;; Cyberyen Core — modern Guix manifest (parallel path only).
 ;;
-;; Package graph matches contrib/guix/manifest.scm (dongcarl-era toolchain: GCC 9,
-;; glibc 2.27) so that the shared autotools contrib/guix/libexec/build.sh keeps
-;; working unchanged. The driver pins upstream Guix via contrib/guix/libexec/prelude.bash
-;; (Codeberg guix.git @ c5eee3336cc1d10a3cc1c97fde2809c3451624d3).
+;; Same package graph as contrib/guix/manifest.scm (dongcarl Guix era: GCC 9,
+;; glibc 2.27, python-3.7) so contrib/guix/libexec/build.sh is unchanged.
+;; Driver pins Guix via prelude.bash to the same fork/commit as guix-build.sh:
+;;   https://github.com/dongcarl/guix.git @ b066c25026f21fb57677aa34692a5034338e7ee3
 ;;
-;; Bitcoin Core's CMake-based Guix manifest targets a different libexec/build.sh;
-;; Cyberyen intentionally retains this Scheme baseline until the tree migrates.
+;; HOST branches cover only targets used by the modern driver (Linux and Windows
+;; x86_64); no riscv/powerpc/Darwin toolchains here.
 
 (use-modules (gnu)
              (gnu packages)
@@ -73,22 +73,32 @@ http://www.linuxfromscratch.org/hlfs/view/development/chapter05/gcc-pass1.html"
                               base-gcc)
   "Create a cross-compilation toolchain package for TARGET"
   (let* ((xbinutils (cross-binutils target))
+         ;; 1. Build a cross-compiling gcc without targeting any libc, derived
+         ;; from BASE-GCC-FOR-LIBC
          (xgcc-sans-libc (cross-gcc target
                                     #:xgcc base-gcc-for-libc
                                     #:xbinutils xbinutils))
+         ;; 2. Build cross-compiled kernel headers with XGCC-SANS-LIBC, derived
+         ;; from BASE-KERNEL-HEADERS
          (xkernel (cross-kernel-headers target
                                         base-kernel-headers
                                         xgcc-sans-libc
                                         xbinutils))
+         ;; 3. Build a cross-compiled libc with XGCC-SANS-LIBC and XKERNEL,
+         ;; derived from BASE-LIBC
          (xlibc (cross-libc target
                             base-libc
                             xgcc-sans-libc
                             xbinutils
                             xkernel))
+         ;; 4. Build a cross-compiling gcc targeting XLIBC, derived from
+         ;; BASE-GCC
          (xgcc (cross-gcc target
                           #:xgcc base-gcc
                           #:xbinutils xbinutils
                           #:libc xlibc)))
+    ;; Define a meta-package that propagates the resulting XBINUTILS, XLIBC, and
+    ;; XGCC
     (package
       (name (string-append target "-toolchain"))
       (version (package-version xgcc))
@@ -132,6 +142,8 @@ desirable for building Cyberyen Core release binaries."
                                     #:xgcc (make-ssp-fixed-gcc gcc-9)
                                     #:xbinutils xbinutils
                                     #:libc pthreads-xlibc))))
+    ;; Define a meta-package that propagates the resulting XBINUTILS, XLIBC, and
+    ;; XGCC
     (package
       (name (string-append target "-posix-toolchain"))
       (version (package-version pthreads-xgcc))
@@ -177,10 +189,9 @@ chain for " target " development."))
         autoconf
         automake
         pkg-config
-        ;; Scripting (legacy manifest used python-3.7; upstream Guix no longer exports
-        ;; that symbol—python-minimal provides Python 3 for scripts without changing GCC/glibc)
+        ;; Scripting
         perl
-        python-minimal
+        python-3.7
         ;; Git
         git
         ;; Native gcc 9 toolchain targeting glibc 2.27
@@ -189,9 +200,6 @@ chain for " target " development."))
     (cond ((string-suffix? "-mingw32" target)
            ;; Windows
            (list zip (make-mingw-pthreads-cross-toolchain "x86_64-w64-mingw32") nsis-x86_64))
-          ((string-contains target "riscv64-linux-")
-           (list (make-cyberyen-cross-toolchain "riscv64-linux-gnu"
-                                               #:base-gcc-for-libc gcc-7)))
           ((string-contains target "-linux-")
            (list (make-cyberyen-cross-toolchain target)))
           (else '())))))

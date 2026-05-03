@@ -26,6 +26,9 @@ jobs:
     timeout-minutes: 480
 
     env:
+      # Same pin as contrib/guix/guix-build.sh / prelude.bash defaults.
+      GUIX_GIT_URL: https://github.com/dongcarl/guix.git
+      GUIX_GIT_COMMIT: b066c25026f21fb57677aa34692a5034338e7ee3
       # Single-host matrix equivalent: fastest useful smoke for CI.
       HOSTS: x86_64-linux-gnu
       # Keep logs readable on shared runners.
