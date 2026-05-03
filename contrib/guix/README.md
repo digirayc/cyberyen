@@ -1,22 +1,17 @@
-# Bootstrappable Bitcoin Core Builds
+# Bootstrappable Cyberyen Core Builds (GNU Guix)
 
-## Modern Guix (parallel path)
+## Official release driver
 
-Driver files: **`./contrib/guix/guix-build`**, **`contrib/guix/libexec/prelude.bash`**, **`contrib/guix/manifest-modern.scm`**. Optional cleanup: **`./contrib/guix/guix-clean`**.
+Entry points: **`./contrib/guix/guix-build`**, **`contrib/guix/manifest.scm`**, **`contrib/guix/libexec/prelude.bash`**, **`contrib/guix/autotools-build.sh`** (runs inside the container). Optional cleanup: **`./contrib/guix/guix-clean`**. Smoke tests: **`./contrib/guix/test-modern.sh`**.
 
-### What the modern path does
+### Behaviour
 
-- **`guix time-machine`** uses the **same Guix fork and commit as legacy `guix-build.sh`**: **`https://github.com/dongcarl/guix.git`** @ **`b066c25026f21fb57677aa34692a5034338e7ee3`** (override with **`GUIX_GIT_URL`** / **`GUIX_GIT_COMMIT`**).
-- Default **`HOSTS`**: **`x86_64-linux-gnu`** and **`x86_64-w64-mingw32`** only (no macOS SDK, no extra architectures).
-- **`SUBSTITUTE_URLS`** defaults to **`https://ci.guix.gnu.org`** and **`https://bordeaux.guix.gnu.org`** (or set **`GUIX_SUBSTITUTE_URLS`**).
-- **`VERSION`** / **`DISTNAME`** from **`contrib/gitian-descriptors/assign_DISTNAME`** unless **`FORCE_VERSION`** / **`DISTNAME`** override.
+- **`guix time-machine`** is pinned to **`https://github.com/dongcarl/guix.git`** @ **`b066c25026f21fb57677aa34692a5034338e7ee3`** (override with **`GUIX_GIT_URL`** / **`GUIX_GIT_COMMIT`**). **`--fallback`** is used to reduce failures from transient substitute or mirror issues.
+- Default **`HOSTS`**: **`x86_64-linux-gnu`**, **`x86_64-w64-mingw32`**, **`x86_64-apple-darwin`**, **`aarch64-apple-darwin`**. Set **`SDK_PATH`** (or place the SDK under **`depends/SDKs/`** as for Gitian) before Apple builds.
+- **`VERSION`** / **`DISTNAME`** come only from **`contrib/gitian-descriptors/assign_DISTNAME`** unless **`FORCE_VERSION`** / **`DISTNAME`** are set for testing.
 - Outputs under **`guix-build-${VERSION}/output/`**; distsrc trees under **`guix-build-${VERSION}/distsrc-${VERSION}-<host>/`**.
-- Runs the **shared autotools** script **`contrib/guix/libexec/build.sh`** with **`MAX_JOBS`** from **`JOBS`**.
-- **`manifest-modern.scm`** matches **`manifest.scm`** package/toolchain choices (GCC 9, glibc 2.27, **python-3.7**); HOST branches cover Linux and Windows x86_64 only.
-
-### Legacy path and Gitian (unchanged)
-
-**Do not remove:** **`./contrib/guix/guix-build.sh`**, **`contrib/guix/manifest.scm`**, and **`contrib/guix/libexec/build.sh`**. **Gitian descriptors** are unchanged.
+- **`manifest.scm`**: GCC 9 + glibc 2.27 native toolchain, **python-3.7**, optional **`xorriso`** (DMG tooling); cross GCC for **`x86_64-linux-gnu`** and MinGW for Windows. Darwin uses depends + Xcode SDK (no extra gcc-cross list in the manifest).
+- Gitian descriptors under **`contrib/gitian-descriptors/`** are **unchanged** and remain available for maintainers who still run Gitian.
 
 ### Usage
 
@@ -28,7 +23,7 @@ HOSTS="x86_64-linux-gnu x86_64-w64-mingw32" ./contrib/guix/guix-build
 ./contrib/guix/guix-clean
 ```
 
-Key variables: **`HOSTS`**, **`JOBS`**, **`SOURCE_DATE_EPOCH`**, **`FORCE_DIRTY_WORKTREE`**, **`SOURCES_PATH`**, **`BASE_CACHE`**, **`SUBSTITUTE_URLS`**, **`GUIX_SUBSTITUTE_URLS`**, **`ADDITIONAL_GUIX_*`**. (Legacy **`SDK_PATH`** applies to **`guix-build.sh`** / depends for Apple builds; the modern driver does not target Darwin.)
+Key variables: **`HOSTS`**, **`JOBS`**, **`SOURCE_DATE_EPOCH`**, **`FORCE_DIRTY_WORKTREE`**, **`SOURCES_PATH`**, **`BASE_CACHE`**, **`SDK_PATH`**, **`SUBSTITUTE_URLS`**, **`GUIX_SUBSTITUTE_URLS`**, **`ADDITIONAL_GUIX_*`**.
 
 ---
 
@@ -127,10 +122,10 @@ a `depends` build injected into your environment.
 
 ### As a Tool for Deterministic Builds
 
-From the top of a clean Bitcoin Core repository:
+From the top of a clean Cyberyen Core repository:
 
 ```sh
-./contrib/guix/guix-build.sh
+./contrib/guix/guix-build
 ```
 
 After the build finishes successfully (check the status code please), compare
@@ -144,23 +139,17 @@ find output/ -type f -print0 | sort -z | xargs -r0 sha256sum
 
 * _**HOSTS**_
 
-  Override the space-separated list of platform triples for which to perform a
-  bootstrappable build. _(defaults to "x86\_64-linux-gnu
-  arm-linux-gnueabihf aarch64-linux-gnu riscv64-linux-gnu")_
-
-  > Windows and OS X platform triplet support are WIP.
+  Space-separated list of platform triples to build. Defaults to
+  `x86_64-linux-gnu`, `x86_64-w64-mingw32`, `x86_64-apple-darwin`, and
+  `aarch64-apple-darwin`.
 
 * _**SOURCES_PATH**_
 
-  Set the depends tree download cache for sources. This is passed through to the
-  depends tree. Setting this to the same directory across multiple builds of the
-  depends tree can eliminate unnecessary redownloading of package sources.
+  Depends download cache for sources (passed through to `depends/`).
 
-* _**MAX_JOBS**_
+* _**BASE_CACHE**_
 
-  Set the depends tree cache for built packages. This is passed through to the
-  depends tree. Setting this to the same directory across multiple builds of the
-  depends tree can eliminate unnecessary building of packages.
+  Depends cache for built packages (passed through to `depends/`).
 
 * _**SDK_PATH**_
 

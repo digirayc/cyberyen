@@ -1,8 +1,14 @@
+;; Cyberyen Core — Guix manifest (dongcarl Guix @ b066c25026f21fb57677aa34692a5034338e7ee3).
+;; Toolchain aligned with historical Gitian releases: GCC 9, glibc 2.27, python-3.7.
+;; HOST-specific packages: Linux x86_64 cross, Windows x86_64 pthreads; Darwin uses
+;; depends (clang/cctools) + Xcode SDK — base profile supplies xorrisofs for DMG.
+
 (use-modules (gnu)
              (gnu packages)
              (gnu packages autotools)
              (gnu packages base)
              (gnu packages bash)
+             (gnu packages cdrom)
              (gnu packages check)
              (gnu packages commencement)
              (gnu packages compression)
@@ -63,32 +69,22 @@ http://www.linuxfromscratch.org/hlfs/view/development/chapter05/gcc-pass1.html"
                               base-gcc)
   "Create a cross-compilation toolchain package for TARGET"
   (let* ((xbinutils (cross-binutils target))
-         ;; 1. Build a cross-compiling gcc without targeting any libc, derived
-         ;; from BASE-GCC-FOR-LIBC
          (xgcc-sans-libc (cross-gcc target
                                     #:xgcc base-gcc-for-libc
                                     #:xbinutils xbinutils))
-         ;; 2. Build cross-compiled kernel headers with XGCC-SANS-LIBC, derived
-         ;; from BASE-KERNEL-HEADERS
          (xkernel (cross-kernel-headers target
                                         base-kernel-headers
                                         xgcc-sans-libc
                                         xbinutils))
-         ;; 3. Build a cross-compiled libc with XGCC-SANS-LIBC and XKERNEL,
-         ;; derived from BASE-LIBC
          (xlibc (cross-libc target
                             base-libc
                             xgcc-sans-libc
                             xbinutils
                             xkernel))
-         ;; 4. Build a cross-compiling gcc targeting XLIBC, derived from
-         ;; BASE-GCC
          (xgcc (cross-gcc target
                           #:xgcc base-gcc
                           #:xbinutils xbinutils
                           #:libc xlibc)))
-    ;; Define a meta-package that propagates the resulting XBINUTILS, XLIBC, and
-    ;; XGCC
     (package
       (name (string-append target "-toolchain"))
       (version (package-version xgcc))
@@ -106,14 +102,14 @@ chain for " target " development."))
       (home-page (package-home-page xgcc))
       (license (package-license xgcc)))))
 
-(define* (make-bitcoin-cross-toolchain target
+(define* (make-cyberyen-cross-toolchain target
                                   #:key
                                   (base-gcc-for-libc gcc-5)
                                   (base-kernel-headers linux-libre-headers-4.19)
                                   (base-libc glibc-2.27)
                                   (base-gcc (make-gcc-rpath-link gcc-9)))
   "Convenience wrapper around MAKE-CROSS-TOOLCHAIN with default values
-desirable for building Bitcoin Core release binaries."
+desirable for building Cyberyen Core release binaries."
   (make-cross-toolchain target
                    base-gcc-for-libc
                    base-kernel-headers
@@ -132,8 +128,6 @@ desirable for building Bitcoin Core release binaries."
                                     #:xgcc (make-ssp-fixed-gcc gcc-9)
                                     #:xbinutils xbinutils
                                     #:libc pthreads-xlibc))))
-    ;; Define a meta-package that propagates the resulting XBINUTILS, XLIBC, and
-    ;; XGCC
     (package
       (name (string-append target "-posix-toolchain"))
       (version (package-version pthreads-xgcc))
@@ -158,6 +152,7 @@ chain for " target " development."))
         which
         coreutils
         util-linux
+        xorriso
         ;; File(system) inspection
         file
         grep
@@ -188,11 +183,7 @@ chain for " target " development."))
         (make-gcc-toolchain gcc-9 glibc-2.27))
   (let ((target (getenv "HOST")))
     (cond ((string-suffix? "-mingw32" target)
-           ;; Windows
            (list zip (make-mingw-pthreads-cross-toolchain "x86_64-w64-mingw32") nsis-x86_64))
-          ((string-contains target "riscv64-linux-")
-           (list (make-bitcoin-cross-toolchain "riscv64-linux-gnu"
-                                               #:base-gcc-for-libc gcc-7)))
-          ((string-contains target "-linux-")
-           (list (make-bitcoin-cross-toolchain target)))
+          ((string=? target "x86_64-linux-gnu")
+           (list (make-cyberyen-cross-toolchain target)))
           (else '())))))

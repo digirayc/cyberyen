@@ -7,7 +7,6 @@ if [ -n "$V" ]; then
     # Print both unexpanded (-v) and expanded (-x) forms of commands as they are
     # read from this file.
     set -vx
-    # Set VERBOSE for CMake-based builds
     export VERBOSE="$V"
 fi
 
@@ -77,18 +76,23 @@ case "$HOST" in
         export CROSS_CPLUS_INCLUDE_PATH="${CROSS_GCC}/include/c++:${CROSS_GCC}/include/c++/${HOST}:${CROSS_GCC}/include/c++/backward:${CROSS_C_INCLUDE_PATH}"
         export CROSS_LIBRARY_PATH="${CROSS_GCC}/lib:${CROSS_GCC}/${HOST}/lib:${CROSS_GCC_LIB}:${CROSS_GLIBC}/lib:${CROSS_GLIBC_STATIC}/lib"
         ;;
+    *darwin*)
+        ;; # Toolchain from depends (clang/cctools) + Xcode SDK; see depends/hosts/darwin.mk
     *)
+        echo "ERR: Unsupported HOST for Guix autotools build: ${HOST}" >&2
         exit 1 ;;
 esac
 
-# Sanity check CROSS_*_PATH directories
-IFS=':' read -ra PATHS <<< "${CROSS_C_INCLUDE_PATH}:${CROSS_CPLUS_INCLUDE_PATH}:${CROSS_LIBRARY_PATH}"
-for p in "${PATHS[@]}"; do
-    if [ ! -d "$p" ]; then
-        echo "'$p' doesn't exist or isn't a directory... Aborting..."
-        exit 1
-    fi
-done
+# Sanity check CROSS_*_PATH directories (not used for darwin)
+if [ -n "${CROSS_C_INCLUDE_PATH:-}" ]; then
+    IFS=':' read -ra PATHS <<< "${CROSS_C_INCLUDE_PATH}:${CROSS_CPLUS_INCLUDE_PATH}:${CROSS_LIBRARY_PATH}"
+    for p in "${PATHS[@]}"; do
+        if [ ! -d "$p" ]; then
+            echo "'$p' doesn't exist or isn't a directory... Aborting..."
+            exit 1
+        fi
+    done
+fi
 
 # Disable Guix ld auto-rpath behavior
 export GUIX_LD_WRAPPER_DISABLE_RPATH=yes
@@ -103,16 +107,13 @@ export GUIX_LD_WRAPPER_DISABLE_RPATH=yes
 # Determine the correct value for -Wl,--dynamic-linker for the current $HOST
 case "$HOST" in
     *linux*)
-        glibc_dynamic_linker=$(
-            case "$HOST" in
-                i686-linux-gnu)      echo /lib/ld-linux.so.2 ;;
-                x86_64-linux-gnu)    echo /lib64/ld-linux-x86-64.so.2 ;;
-                arm-linux-gnueabihf) echo /lib/ld-linux-armhf.so.3 ;;
-                aarch64-linux-gnu)   echo /lib/ld-linux-aarch64.so.1 ;;
-                riscv64-linux-gnu)   echo /lib/ld-linux-riscv64-lp64d.so.1 ;;
-                *)                   exit 1 ;;
-            esac
-        )
+        case "$HOST" in
+            x86_64-linux-gnu) glibc_dynamic_linker=/lib64/ld-linux-x86-64.so.2 ;;
+            *)
+                echo "ERR: Unsupported Linux HOST for release Guix build: ${HOST}" >&2
+                exit 1
+                ;;
+        esac
         ;;
 esac
 
@@ -130,6 +131,7 @@ export TZ="UTC"
 make -C depends --jobs="$MAX_JOBS" HOST="$HOST" \
                                    ${V:+V=1} \
                                    ${SOURCES_PATH+SOURCES_PATH="$SOURCES_PATH"} \
+                                   ${SDK_PATH+SDK_PATH="$SDK_PATH"} \
                                    i686_linux_CC=i686-linux-gnu-gcc \
                                    i686_linux_CXX=i686-linux-gnu-g++ \
                                    i686_linux_AR=i686-linux-gnu-ar \
@@ -169,6 +171,9 @@ fi
 CONFIGFLAGS="--enable-reduce-exports --disable-bench --disable-gui-tests"
 case "$HOST" in
     *linux*) CONFIGFLAGS+=" --enable-glibc-back-compat" ;;
+    *darwin*)
+        CONFIGFLAGS+=" XORRISOFS=$(command -v xorrisofs) DMG=${BASEPREFIX}/${HOST}/native/bin/dmg"
+        ;;
 esac
 
 # CFLAGS
@@ -176,6 +181,7 @@ HOST_CFLAGS="-O2 -g"
 case "$HOST" in
     *linux*)  HOST_CFLAGS+=" -ffile-prefix-map=${PWD}=." ;;
     *mingw*)  HOST_CFLAGS+=" -fno-ident" ;;
+    *darwin*) ;;
 esac
 
 # CXXFLAGS
@@ -185,6 +191,7 @@ HOST_CXXFLAGS="$HOST_CFLAGS"
 case "$HOST" in
     *linux*)  HOST_LDFLAGS="-Wl,--as-needed -Wl,--dynamic-linker=$glibc_dynamic_linker -static-libstdc++ -Wl,-O2" ;;
     *mingw*)  HOST_LDFLAGS="-Wl,--no-insert-timestamp" ;;
+    *darwin*) HOST_LDFLAGS="" ;;
 esac
 
 # Make $HOST-specific native binaries from depends available in $PATH
@@ -218,7 +225,7 @@ export PATH="${BASEPREFIX}/${HOST}/native/bin:${PATH}"
     make -C src --jobs=1 check-security ${V:+V=1}
 
     case "$HOST" in
-        *linux*|*mingw*)
+        *linux*|*mingw*|*darwin*)
             # Check that executables only contain allowed gcc, glibc and libstdc++
             # version symbols for Linux distro back-compatibility.
             make -C src --jobs=1 check-symbols  ${V:+V=1}
@@ -237,8 +244,28 @@ export PATH="${BASEPREFIX}/${HOST}/native/bin:${PATH}"
     # binary tarballs.
     INSTALLPATH="${PWD}/installed/${DISTNAME}"
     mkdir -p "${INSTALLPATH}"
-    # Install built Bitcoin Core to $INSTALLPATH
+    # Install built Cyberyen Core to $INSTALLPATH
     make install DESTDIR="${INSTALLPATH}" ${V:+V=1}
+
+    case "$HOST" in
+        *darwin*)
+            make osx_volname ${V:+V=1}
+            make deploydir ${V:+V=1}
+            mkdir -p "unsigned-app-${HOST}"
+            cp osx_volname "unsigned-app-${HOST}/"
+            cp contrib/macdeploy/detached-sig-apply.sh "unsigned-app-${HOST}/"
+            cp contrib/macdeploy/detached-sig-create.sh "unsigned-app-${HOST}/"
+            cp "${BASEPREFIX}/${HOST}/native/bin/dmg" "unsigned-app-${HOST}/"
+            mv dist "unsigned-app-${HOST}/"
+            (
+                cd "unsigned-app-${HOST}"
+                find . | sort | tar --mtime="@${SOURCE_DATE_EPOCH}" --no-recursion --mode='u+rw,go+r-w,a+X' --owner=0 --group=0 -c -T - \
+                    | gzip -9n > "${OUTDIR}/${DISTNAME}-${HOST}-osx-unsigned.tar.gz" \
+                    || ( rm -f "${OUTDIR}/${DISTNAME}-${HOST}-osx-unsigned.tar.gz" && exit 1 )
+            )
+            make deploy OSX_DMG="${OUTDIR}/${DISTNAME}-${HOST}-osx-unsigned.dmg" ${V:+V=1}
+            ;;
+    esac
 
     (
         cd installed
@@ -256,11 +283,18 @@ export PATH="${BASEPREFIX}/${HOST}/native/bin:${PATH}"
         # Prune pkg-config files
         rm -r "${DISTNAME}/lib/pkgconfig"
 
-        # Split binaries and libraries from their debug symbols
-        {
-            find "${DISTNAME}/bin" -type f -executable -print0
-            find "${DISTNAME}/lib" -type f -print0
-        } | xargs -0 -n1 -P"$MAX_JOBS" -I{} "${DISTSRC}/contrib/devtools/split-debug.sh" {} {} {}.dbg
+        case "$HOST" in
+            *linux*|*mingw*)
+                # Split binaries and libraries from their debug symbols (ELF/PE)
+                {
+                    find "${DISTNAME}/bin" -type f -executable -print0
+                    find "${DISTNAME}/lib" -type f -print0
+                } | xargs -0 -n1 -P"$MAX_JOBS" -I{} "${DISTSRC}/contrib/devtools/split-debug.sh" {} {} {}.dbg
+                ;;
+            *darwin*)
+                # Mach-O: match Gitian — no split-debug pass
+                ;;
+        esac
 
         case "$HOST" in
             *mingw*)
@@ -268,6 +302,14 @@ export PATH="${BASEPREFIX}/${HOST}/native/bin:${PATH}"
                 ;;
             *linux*)
                 cp "${DISTSRC}/README.md" "${DISTNAME}/"
+                ;;
+        esac
+
+        case "$HOST" in
+            *darwin*)
+                # Cyberyen: Delete libbitcoin from binary distribution for now (see Gitian gitian-osx.yml)
+                rm -rf "${DISTNAME:?}/lib/"
+                rm -rf "${DISTNAME}/include/"
                 ;;
         esac
 
@@ -299,6 +341,12 @@ export PATH="${BASEPREFIX}/${HOST}/native/bin:${PATH}"
                     | tar --create --no-recursion --mode='u+rw,go+r-w,a+X' --null --files-from=- \
                     | gzip -9n > "${OUTDIR}/${DISTNAME}-${HOST}-debug.tar.gz" \
                     || ( rm -f "${OUTDIR}/${DISTNAME}-${HOST}-debug.tar.gz" && exit 1 )
+                ;;
+            *darwin*)
+                find "${DISTNAME}" | sort \
+                    | tar --mtime="@${SOURCE_DATE_EPOCH}" --no-recursion --mode='u+rw,go+r-w,a+X' --owner=0 --group=0 -c -T - \
+                    | gzip -9n > "${OUTDIR}/${DISTNAME}-${HOST}.tar.gz" \
+                    || ( rm -f "${OUTDIR}/${DISTNAME}-${HOST}.tar.gz" && exit 1 )
                 ;;
         esac
     )

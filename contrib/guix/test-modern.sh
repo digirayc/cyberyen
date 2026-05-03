@@ -58,6 +58,7 @@ info "Checking bash syntax (bash -n)..."
 for f in \
 	contrib/guix/guix-build \
 	contrib/guix/libexec/prelude.bash \
+	contrib/guix/autotools-build.sh \
 	contrib/guix/guix-clean; do
 	if bash -n "${REPO_TOP}/${f}" 2>/tmp/test-modern-bash-err.$$; then
 		pass "bash -n ${f}"
@@ -90,7 +91,7 @@ fi
 rm -f /tmp/test-modern-assign.$$
 
 # Manifest evaluation via guix time-machine (requires guix + network/substitutes may be used)
-info "Checking manifest-modern.scm via guix time-machine shell --pure..."
+info "Checking manifest.scm via guix time-machine shell --pure..."
 GUIX_URL="${GUIX_GIT_URL:-https://github.com/dongcarl/guix.git}"
 GUIX_COMMIT="${GUIX_GIT_COMMIT:-b066c25026f21fb57677aa34692a5034338e7ee3}"
 
@@ -105,10 +106,10 @@ else
 		${GUIX_SUBSTITUTE_URLS:+--substitute-urls="${GUIX_SUBSTITUTE_URLS}"} \
 		--fallback \
 		shell \
-		--manifest="${REPO_TOP}/contrib/guix/manifest-modern.scm" \
+		--manifest="${REPO_TOP}/contrib/guix/manifest.scm" \
 		--pure \
 		-- true 2>/tmp/test-modern-guix.$$; then
-		pass "guix time-machine shell --pure -- manifest-modern.scm"
+		pass "guix time-machine shell --pure -- manifest.scm"
 	else
 		record_fail "Manifest evaluation failed: $(tail -20 /tmp/test-modern-guix.$$)"
 	fi

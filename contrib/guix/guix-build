@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Modern Cyberyen Core Guix driver: Linux x86_64 and Windows x86_64 only (parallel to guix-build.sh).
+# Cyberyen Core — official deterministic release build driver (GNU Guix).
 
 export LC_ALL=C
 set -e -o pipefail
@@ -8,11 +8,12 @@ if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
 	cat << EOF
 Usage: ./contrib/guix/guix-build
 
-Build Cyberyen Core release binaries (autotools) using manifest-modern.scm and
-the same Guix pin as legacy guix-build.sh. Default targets: x86_64-linux-gnu and
-x86_64-w64-mingw32.
+Build Cyberyen Core release binaries (autotools) using contrib/guix/manifest.scm
+and Guix pinned to https://github.com/dongcarl/guix.git @ b066c25026f21fb57677aa34692a5034338e7ee3.
 
-See contrib/guix/README.md (Modern Guix) for environment variables.
+Default HOSTS: x86_64-linux-gnu x86_64-w64-mingw32 x86_64-apple-darwin aarch64-apple-darwin
+
+See contrib/guix/README.md for environment variables.
 Requires a clean git tree unless FORCE_DIRTY_WORKTREE is set.
 EOF
 	exit 0
@@ -21,7 +22,7 @@ fi
 # shellcheck source=libexec/prelude.bash
 source "$(dirname "${BASH_SOURCE[0]}")/libexec/prelude.bash"
 
-GUIX_MANIFEST="${GUIX_MANIFEST:-${PWD}/contrib/guix/manifest-modern.scm}"
+GUIX_MANIFEST="${GUIX_MANIFEST:-${PWD}/contrib/guix/manifest.scm}"
 
 ###################
 ## SANITY CHECKS ##
@@ -59,8 +60,24 @@ mkdir -p "$VERSION_BASE"
 
 check_source_date_epoch
 
-# Cyberyen release targets: Linux x86_64 and Windows x86_64 only.
-export HOSTS="${HOSTS:-x86_64-linux-gnu x86_64-w64-mingw32}"
+export HOSTS="${HOSTS:-x86_64-linux-gnu x86_64-w64-mingw32 x86_64-apple-darwin aarch64-apple-darwin}"
+
+for host in $HOSTS; do
+	case "$host" in
+	*darwin*)
+		OSX_SDK="$(make -C "${PWD}/depends" --no-print-directory HOST="$host" print-OSX_SDK | sed 's/^OSX_SDK = //')"
+		if [ ! -e "$OSX_SDK" ]; then
+			cat << EOF
+ERR: macOS SDK not found at '${OSX_SDK}' for HOST=${host}.
+
+Extract the Xcode SDK under depends/SDKs (see contrib/gitian-descriptors/gitian-osx.yml
+inputs) or set SDK_PATH to the directory containing 'Xcode-*-extracted-SDK-with-libcxx-headers'.
+EOF
+			exit 1
+		fi
+		;;
+	esac
+done
 
 distsrc_for_host() {
 	echo "${DISTSRC_BASE}/distsrc-${VERSION}-${1}"
@@ -101,6 +118,7 @@ total_required_KiB=0
 for host in $HOSTS; do
 	case "$host" in
 	*mingw*) required_KiB=7600000 ;;
+	*darwin*) required_KiB=440000 ;;
 	*) required_KiB=6400000 ;;
 	esac
 	total_required_KiB=$((total_required_KiB + required_KiB))
@@ -156,8 +174,9 @@ host_to_commonname() {
 	case "$1" in
 	*mingw*) echo win ;;
 	*linux*) echo linux ;;
+	*darwin*) echo osx ;;
 	*)
-		echo "ERR: Unsupported HOST (modern driver supports linux and mingw only): $1" >&2
+		echo "ERR: Unsupported HOST: $1" >&2
 		exit 1
 		;;
 	esac
@@ -166,7 +185,7 @@ host_to_commonname() {
 SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH:-$(git -c log.showSignature=false log --format=%at -1)}"
 
 depends_precious_dir_names='SOURCES_PATH BASE_CACHE'
-precious_dir_names="${depends_precious_dir_names} OUTDIR_BASE PROFILES_BASE"
+precious_dir_names="${depends_precious_dir_names} OUTDIR_BASE PROFILES_BASE SDK_PATH"
 
 contains() {
 	for i in ${1}; do
@@ -276,6 +295,7 @@ EOF
 			--expose="$(git rev-parse --git-common-dir)" \
 			${SOURCES_PATH:+--share="$SOURCES_PATH"} \
 			${BASE_CACHE:+--share="$BASE_CACHE"} \
+			${SDK_PATH:+--share="$SDK_PATH"} \
 			--cores="$JOBS" \
 			--keep-failed \
 			--fallback \
@@ -291,8 +311,9 @@ EOF
 				${V:+V=1} \
 				${SOURCES_PATH:+SOURCES_PATH="$SOURCES_PATH"} \
 				${BASE_CACHE:+BASE_CACHE="$BASE_CACHE"} \
+				${SDK_PATH:+SDK_PATH="$SDK_PATH"} \
 				DISTSRC="$(DISTSRC_BASE=/distsrc-base && distsrc_for_host "$HOST")" \
 				OUTDIR="$(OUTDIR_BASE=/outdir-base && outdir_for_host "$HOST")" \
-				bash -c "cd /bitcoin && bash contrib/guix/libexec/build.sh"
+				bash -c "cd /bitcoin && bash contrib/guix/autotools-build.sh"
 	)
 done

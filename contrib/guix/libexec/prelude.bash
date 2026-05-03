@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
-# Shared prelude for the modern Cyberyen Core Guix driver (contrib/guix/guix-build).
-# Not used by legacy contrib/guix/guix-build.sh.
+# Shared prelude for Cyberyen Core Guix release builds (contrib/guix/guix-build).
 
 export LC_ALL=C
 set -e -o pipefail
@@ -88,7 +87,7 @@ fi
 export SUBSTITUTE_URLS
 
 ################
-# Pinned Guix: same fork/commit as legacy contrib/guix/guix-build.sh
+# Pinned Guix (contrib/guix/guix-build defaults; override with GUIX_GIT_URL / GUIX_GIT_COMMIT)
 ################
 
 ################
