@@ -1,6 +1,8 @@
-# Guix CI smoke — exercises ./contrib/guix/guix-build (manifest.scm, prelude.bash).
-# Gitian descriptors are not modified. Retries + substitutes mitigate transient
-# fetch/DNS issues (including occasional SWH problems during source builds).
+# Modern Guix CI — dongcarl pin only. Does not affect Gitian or release process.
+#
+# Smoke build on branch guix-migration-stage1: substitutes + retries mitigate transient
+# network/DNS issues (including occasional Software Heritage resolution failures when
+# Guix falls back to building from source).
 
 name: Guix modern (parallel smoke)
 
@@ -23,15 +25,13 @@ jobs:
     timeout-minutes: 480
 
     env:
-      # Same pin as contrib/guix/guix-build / prelude.bash defaults.
       GUIX_GIT_URL: https://github.com/dongcarl/guix.git
       GUIX_GIT_COMMIT: b066c25026f21fb57677aa34692a5034338e7ee3
-      # Single-host matrix equivalent: fastest useful smoke for CI.
-      HOSTS: x86_64-linux-gnu
-      # Keep logs readable on shared runners.
-      JOBS: 4
-      # Reliable public substitutes for time-machine / shell (avoids depending on SWH for substitutes).
       GUIX_SUBSTITUTE_URLS: "https://ci.guix.gnu.org https://bordeaux.guix.gnu.org"
+      HOSTS: x86_64-linux-gnu
+      JOBS: 4
+      # Propagate through contrib/guix/libexec/prelude.bash time_machine().
+      ADDITIONAL_GUIX_TIMEMACHINE_FLAGS: "--fallback"
 
     steps:
       - name: Checkout repository
@@ -39,15 +39,23 @@ jobs:
         with:
           fetch-depth: 0
 
-      # Best-practice Guix install for Ubuntu runners (daemon, store, substitutes).
+      - name: Network readiness
+        run: |
+          set -euo pipefail
+          sleep 15
+          # ICMP may be filtered on some runners; warn but do not fail the job.
+          if ! ping -c 3 -W 5 8.8.8.8; then
+            echo "::warning::ICMP ping to 8.8.8.8 failed (often blocked on hosted runners); continuing."
+          fi
+          curl -fsSI --max-time 60 https://ci.guix.gnu.org/ | head -20
+
       - name: Install GNU Guix
         uses: PromyLOPh/guix-install-action@v1
 
       - name: Show Guix version
         run: guix --version
 
-      # Authorize official substitute signing keys (ci + Bordeaux) for the daemon.
-      - name: Guix substitute setup
+      - name: Authorize official substitute signing keys (ci.guix.gnu.org + bordeaux)
         run: |
           set -euo pipefail
           GUIX_ROOT="/var/guix/profiles/per-user/root/current-guix"
@@ -55,17 +63,35 @@ jobs:
           for key in \
             "${GUIX_ROOT}/share/guix/ci.guix.gnu.org.pub" \
             "${GUIX_ROOT}/share/guix/bordeaux.guix.gnu.org.pub"; do
-            if [ -f "${key}" ]; then
-              sudo "${GUIX_BIN}" archive --authorize < "${key}"
+            if [ ! -f "${key}" ]; then
+              echo "ERR: Missing signing key file: ${key}"
+              exit 1
             fi
+            sudo "${GUIX_BIN}" archive --authorize < "${key}"
           done
 
-      - name: Run modern Guix driver (full release-style build)
-        # Modern parallel Guix test — does not affect release process or Gitian.
+      - name: Preflight guix time-machine + shell (manifest, substitutes, fallback)
         run: |
           set -euo pipefail
           cd "${GITHUB_WORKSPACE}"
-          max_attempts=3
+          export HOST=x86_64-linux-gnu
+          guix time-machine \
+            --url="${GUIX_GIT_URL}" \
+            --commit="${GUIX_GIT_COMMIT}" \
+            --substitute-urls="${GUIX_SUBSTITUTE_URLS}" \
+            --fallback \
+            -- shell \
+            --manifest="${GITHUB_WORKSPACE}/contrib/guix/manifest.scm" \
+            --pure \
+            --fallback \
+            --substitute-urls="${GUIX_SUBSTITUTE_URLS}" \
+            -- true
+
+      - name: Run Guix driver (full smoke build, with retries)
+        run: |
+          set -euo pipefail
+          cd "${GITHUB_WORKSPACE}"
+          max_attempts=8
           attempt=1
           while [ "${attempt}" -le "${max_attempts}" ]; do
             if ./contrib/guix/guix-build; then
@@ -75,8 +101,8 @@ jobs:
               echo "guix-build failed after ${max_attempts} attempts"
               exit 1
             fi
-            echo "Transient failure (attempt ${attempt}/${max_attempts}); retrying in 60s..."
-            sleep 60
+            echo "Transient failure (attempt ${attempt}/${max_attempts}); retrying in 120s..."
+            sleep 120
             attempt=$((attempt + 1))
           done
 
