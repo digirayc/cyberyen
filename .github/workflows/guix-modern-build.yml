@@ -1,8 +1,8 @@
 # Modern Guix CI — dongcarl pin only. Does not affect Gitian or release process.
 #
-# Smoke build on branch guix-migration-stage1: substitutes + retries mitigate transient
-# network/DNS issues (including occasional Software Heritage resolution failures when
-# Guix falls back to building from source).
+# Smoke build on guix-migration-stage1: prolonged retries + substitute endpoints +
+# preflight loops mitigate transient DNS/network faults (including SWH-related fetch
+# failures when builds fall back to source).
 
 name: Guix modern (parallel smoke)
 
@@ -30,7 +30,6 @@ jobs:
       GUIX_SUBSTITUTE_URLS: "https://ci.guix.gnu.org https://bordeaux.guix.gnu.org"
       HOSTS: x86_64-linux-gnu
       JOBS: 4
-      # Propagate through contrib/guix/libexec/prelude.bash time_machine().
       ADDITIONAL_GUIX_TIMEMACHINE_FLAGS: "--fallback"
 
     steps:
@@ -39,15 +38,34 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Network readiness
+      - name: Network readiness (multi-attempt)
         run: |
           set -euo pipefail
-          sleep 15
-          # ICMP may be filtered on some runners; warn but do not fail the job.
+          sleep 20
           if ! ping -c 3 -W 5 8.8.8.8; then
             echo "::warning::ICMP ping to 8.8.8.8 failed (often blocked on hosted runners); continuing."
           fi
-          curl -fsSI --max-time 60 https://ci.guix.gnu.org/ | head -20
+          net_max=5
+          net_a=1
+          while [ "${net_a}" -le "${net_max}" ]; do
+            echo "Network attempt ${net_a}/${net_max}: checking ci.guix.gnu.org and bordeaux.guix.gnu.org"
+            if curl -fsS --max-time 90 "https://ci.guix.gnu.org/" -o /dev/null && \
+               curl -fsS --max-time 90 "https://bordeaux.guix.gnu.org/" -o /dev/null; then
+              echo "--- ci.guix.gnu.org (headers) ---"
+              curl -fsSI --max-time 60 "https://ci.guix.gnu.org/" | head -20 || true
+              echo "--- bordeaux.guix.gnu.org (headers) ---"
+              curl -fsSI --max-time 60 "https://bordeaux.guix.gnu.org/" | head -20 || true
+              echo "Network readiness OK"
+              exit 0
+            fi
+            if [ "${net_a}" -eq "${net_max}" ]; then
+              echo "ERR: Could not reach one or both substitute front-ends after ${net_max} attempts"
+              exit 1
+            fi
+            echo "Retrying network check in 45s..."
+            sleep 45
+            net_a=$((net_a + 1))
+          done
 
       - name: Install GNU Guix
         uses: PromyLOPh/guix-install-action@v1
@@ -70,28 +88,43 @@ jobs:
             sudo "${GUIX_BIN}" archive --authorize < "${key}"
           done
 
-      - name: Preflight guix time-machine + shell (manifest, substitutes, fallback)
+      - name: Preflight guix time-machine + shell (5 attempts, manifest + substitutes)
         run: |
           set -euo pipefail
           cd "${GITHUB_WORKSPACE}"
           export HOST=x86_64-linux-gnu
-          guix time-machine \
-            --url="${GUIX_GIT_URL}" \
-            --commit="${GUIX_GIT_COMMIT}" \
-            --substitute-urls="${GUIX_SUBSTITUTE_URLS}" \
-            --fallback \
-            -- shell \
-            --manifest="${GITHUB_WORKSPACE}/contrib/guix/manifest.scm" \
-            --pure \
-            --fallback \
-            --substitute-urls="${GUIX_SUBSTITUTE_URLS}" \
-            -- true
+          pre_max=5
+          pre_a=1
+          while [ "${pre_a}" -le "${pre_max}" ]; do
+            echo "Preflight attempt ${pre_a}/${pre_max}"
+            if guix time-machine \
+              --url="${GUIX_GIT_URL}" \
+              --commit="${GUIX_GIT_COMMIT}" \
+              --substitute-urls="${GUIX_SUBSTITUTE_URLS}" \
+              --fallback \
+              -- shell \
+              --manifest="${GITHUB_WORKSPACE}/contrib/guix/manifest.scm" \
+              --pure \
+              --fallback \
+              --substitute-urls="${GUIX_SUBSTITUTE_URLS}" \
+              -- true; then
+              echo "Preflight succeeded"
+              exit 0
+            fi
+            if [ "${pre_a}" -eq "${pre_max}" ]; then
+              echo "ERR: Preflight failed after ${pre_max} attempts"
+              exit 1
+            fi
+            echo "Preflight failed; waiting 90s before retry..."
+            sleep 90
+            pre_a=$((pre_a + 1))
+          done
 
-      - name: Run Guix driver (full smoke build, with retries)
+      - name: Run Guix driver (full smoke build, 10×180s retries)
         run: |
           set -euo pipefail
           cd "${GITHUB_WORKSPACE}"
-          max_attempts=8
+          max_attempts=10
           attempt=1
           while [ "${attempt}" -le "${max_attempts}" ]; do
             if ./contrib/guix/guix-build; then
@@ -101,8 +134,8 @@ jobs:
               echo "guix-build failed after ${max_attempts} attempts"
               exit 1
             fi
-            echo "Transient failure (attempt ${attempt}/${max_attempts}); retrying in 120s..."
-            sleep 120
+            echo "Transient failure (attempt ${attempt}/${max_attempts}); retrying in 180s..."
+            sleep 180
             attempt=$((attempt + 1))
           done
 
