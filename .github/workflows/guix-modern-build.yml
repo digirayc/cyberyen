@@ -1,8 +1,8 @@
 # Modern Guix CI — dongcarl pin only. Does not affect Gitian or release process.
 #
-# Smoke build on guix-migration-stage1: prolonged retries + substitute endpoints +
-# preflight loops mitigate transient DNS/network faults (including SWH-related fetch
-# failures when builds fall back to source).
+# Smoke build on guix-migration-stage1: GitHub Actions cache of ~/.cache/guix (Guix
+# time-machine checkouts, keyed by GUIX_GIT_COMMIT) + substitutes + retries mitigate
+# transient network/DNS faults (including SWH-related source fetches).
 
 name: Guix modern (parallel smoke)
 
@@ -88,11 +88,25 @@ jobs:
             sudo "${GUIX_BIN}" archive --authorize < "${key}"
           done
 
-      - name: Preflight guix time-machine + shell (5 attempts, manifest + substitutes)
+      # Guix stores time-machine channel clones under ~/.cache/guix (see XDG_CACHE_HOME).
+      # Restoring this before preflight/guix-build avoids re-cloning dongcarl/guix when possible.
+      - name: Cache Guix time-machine checkout (~/.cache/guix)
+        uses: actions/cache@v4
+        id: guix-cache
+        with:
+          path: ~/.cache/guix
+          key: guix-time-machine-${{ runner.os }}-${{ env.GUIX_GIT_COMMIT }}
+          restore-keys: |
+            guix-time-machine-${{ runner.os }}-
+
+      - name: Preflight guix time-machine + shell (5 attempts, manifest + substitutes, uses cache)
         run: |
           set -euo pipefail
           cd "${GITHUB_WORKSPACE}"
           export HOST=x86_64-linux-gnu
+          export XDG_CACHE_HOME="${XDG_CACHE_HOME:-$HOME/.cache}"
+          echo "Guix checkout cache: hit=${{ steps.guix-cache.outputs.cache-hit }}"
+          ls -la "${XDG_CACHE_HOME}/guix" 2>/dev/null || echo "(cache dir empty or missing until first clone)"
           pre_max=5
           pre_a=1
           while [ "${pre_a}" -le "${pre_max}" ]; do
@@ -120,11 +134,11 @@ jobs:
             pre_a=$((pre_a + 1))
           done
 
-      - name: Run Guix driver (full smoke build, 10×180s retries)
+      - name: Run Guix driver (full smoke build, 12×150s retries)
         run: |
           set -euo pipefail
           cd "${GITHUB_WORKSPACE}"
-          max_attempts=10
+          max_attempts=12
           attempt=1
           while [ "${attempt}" -le "${max_attempts}" ]; do
             if ./contrib/guix/guix-build; then
@@ -134,8 +148,8 @@ jobs:
               echo "guix-build failed after ${max_attempts} attempts"
               exit 1
             fi
-            echo "Transient failure (attempt ${attempt}/${max_attempts}); retrying in 180s..."
-            sleep 180
+            echo "Transient failure (attempt ${attempt}/${max_attempts}); retrying in 150s..."
+            sleep 150
             attempt=$((attempt + 1))
           done
 
