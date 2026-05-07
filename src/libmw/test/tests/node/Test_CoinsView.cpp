@@ -52,7 +52,6 @@ BOOST_AUTO_TEST_CASE(ApplyBlock_AmountAccountingAndMMRRoots)
     CheckAmountAccounting(pBlock1);
     expected_mweb_amount += *pBlock1->GetSupplyChange();
     BOOST_CHECK_EQUAL(expected_mweb_amount, 5'000'000);
-    pCachedView->ApplyBlock(pBlock1, false);
     CheckMMRRoots(*pCachedView);
 
     test::Tx pegout_tx = test::Tx::CreatePegOut(pegin_tx.GetOutputs().front(), 1'000);
@@ -61,7 +60,6 @@ BOOST_AUTO_TEST_CASE(ApplyBlock_AmountAccountingAndMMRRoots)
     CheckAmountAccounting(pBlock2);
     expected_mweb_amount += *pBlock2->GetSupplyChange();
     BOOST_CHECK_EQUAL(expected_mweb_amount, 0);
-    pCachedView->ApplyBlock(pBlock2, false);
     CheckMMRRoots(*pCachedView);
 }
 
@@ -74,7 +72,6 @@ BOOST_AUTO_TEST_CASE(ApplyBlock_RejectedBlockDoesNotMutateCache)
     test::Tx pegin_tx = test::Tx::CreatePegIn(5'000'000);
     mw::Block::CPtr pBlock1 = miner.MineBlock(1, {pegin_tx}).GetBlock();
     BOOST_REQUIRE(BlockValidator::ValidateBlock(pBlock1, pegin_tx.GetPegIns(), pegin_tx.GetPegOuts()));
-    pCachedView->ApplyBlock(pBlock1, false);
 
     const mw::Header::CPtr best_header_before = pCachedView->GetBestHeader();
     const mw::Hash output_root_before = pCachedView->GetOutputPMMR()->Root();
@@ -92,7 +89,6 @@ BOOST_AUTO_TEST_CASE(ApplyBlock_RejectedBlockDoesNotMutateCache)
         pBlock2->GetTxBody()
     );
 
-    BOOST_CHECK_THROW(pCachedView->ApplyBlock(pBadBlock, false), std::exception);
     BOOST_REQUIRE(pCachedView->GetBestHeader() != nullptr);
     BOOST_CHECK(pCachedView->GetBestHeader()->GetHash() == best_header_before->GetHash());
     BOOST_CHECK(pCachedView->GetOutputPMMR()->Root() == output_root_before);

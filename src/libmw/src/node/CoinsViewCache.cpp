@@ -38,17 +38,6 @@ mw::BlockUndo::CPtr CoinsViewCache::ApplyBlock(const mw::Block::CPtr& pBlock)
 {
     assert(pBlock != nullptr);
 
-    // Create a temporary cache to ensure the block is fully validated before mutating the state of this CoinsViewCache.
-    mw::ICoinsView::Ptr pSelf(this, [](mw::ICoinsView*) {});
-    mw::CoinsViewCache validation_cache(pSelf);
-
-    mw::BlockUndo::CPtr pUndo = validation_cache.ApplyBlockChanges(pBlock, allow_historical_metadata_mismatch);
-    validation_cache.Flush();
-    return pUndo;
-}
-
-mw::BlockUndo::CPtr CoinsViewCache::ApplyBlockChanges(const mw::Block::CPtr& pBlock, const bool allow_historical_metadata_mismatch)
-{
     auto pPreviousHeader = GetBestHeader();
     SetBestHeader(pBlock->GetHeader());
 
@@ -254,7 +243,7 @@ UTXO CoinsViewCache::SpendUTXO(const mw::Hash& output_id)
 void CoinsViewCache::WriteBatch(const std::unique_ptr<mw::DBBatch>&, const CoinsViewUpdates& updates, const mw::Header::CPtr& pHeader)
 {
     SetBestHeader(pHeader);
-     
+
     for (const auto& actions : updates.GetActions()) {
         const mw::Hash& output_id = actions.first;
         for (const auto& action : actions.second) {
@@ -273,7 +262,7 @@ void CoinsViewCache::Flush(const std::unique_ptr<mw::DBBatch>& pBatch)
     if (GetBestHeader() == nullptr) {
         return;
     }
-    
+
     m_pBase->WriteBatch(pBatch, *m_pUpdates, GetBestHeader());
 
     MMRInfo mmr_info;
